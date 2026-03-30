@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'recovery_screen.dart';
 import 'username_screen.dart';
 
 /// First onboarding screen — shown only on fresh install.
@@ -115,6 +116,31 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ),
                     child: const Text('Get Started'),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Recovery button
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const RecoveryScreen()),
+                      );
+                    },
+                    icon: const Icon(Icons.restore, size: 20),
+                    label: const Text('I Have an Account'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 48),

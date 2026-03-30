@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../providers/profile_provider.dart';
-import '../home_screen.dart';
+import 'pin_setup_screen.dart';
 
 /// Optional class join screen during onboarding.
 ///
@@ -75,10 +75,9 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
       await Future.delayed(const Duration(milliseconds: 1500));
 
       if (mounted) {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (route) => false,
+          MaterialPageRoute(builder: (_) => const PinSetupScreen()),
         );
       }
     } catch (e) {
@@ -92,10 +91,9 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
   }
 
   void _skip() {
-    Navigator.pushAndRemoveUntil(
+    Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-      (route) => false,
+      MaterialPageRoute(builder: (_) => const PinSetupScreen()),
     );
   }
 
