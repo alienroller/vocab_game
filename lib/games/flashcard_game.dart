@@ -102,13 +102,13 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame> {
                       borderRadius: BorderRadius.circular(32),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
+                          color: Colors.black.withValues(alpha: 0.1),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
                       ],
                       border: Border.all(
-                        color: theme.colorScheme.primary.withOpacity(0.3),
+                        color: theme.colorScheme.primary.withValues(alpha: 0.3),
                         width: 2,
                       ),
                     ),
@@ -163,12 +163,12 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame> {
                             const SizedBox(height: 32),
                             Icon(
                               Icons.touch_app,
-                              color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withOpacity(0.5),
+                              color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withValues(alpha: 0.5),
                             ),
                             Text(
                               'Tap to flip',
                               style: TextStyle(
-                                color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withOpacity(0.5),
+                                color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withValues(alpha: 0.5),
                               ),
                             ),
                           ],

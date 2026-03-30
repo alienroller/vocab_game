@@ -1,0 +1,10 @@
+{
+  "name": "vocab-content-pipeline",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI-powered word content generator for VocabGame",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}

@@ -190,7 +190,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
                     key: ValueKey(isRevealed),
                     decoration: BoxDecoration(
                       color: isRevealed 
-                          ? (card.isMatched ? theme.colorScheme.surfaceContainerHighest.withOpacity(0.5) : theme.colorScheme.surface)
+                          ? (card.isMatched ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5) : theme.colorScheme.surface)
                           : theme.colorScheme.primary,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
@@ -199,7 +199,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
                       ),
                       boxShadow: isRevealed ? [] : [
                         BoxShadow(
-                          color: theme.colorScheme.primary.withOpacity(0.3),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
                         ),
@@ -220,7 +220,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
                         : Icon(
                             Icons.question_mark_rounded,
                             size: 48,
-                            color: theme.colorScheme.onPrimary.withOpacity(0.5),
+                            color: theme.colorScheme.onPrimary.withValues(alpha: 0.5),
                           ),
                   ),
                 ),

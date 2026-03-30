@@ -36,7 +36,7 @@ class ResultScreen extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: (isSuccess ? Colors.green : Colors.orange).withOpacity(0.2),
+                    color: (isSuccess ? Colors.green : Colors.orange).withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(

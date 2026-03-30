@@ -184,7 +184,7 @@ class _QuizGameState extends ConsumerState<QuizGame> {
                       if (!_answered) return theme.colorScheme.outline;
                       if (isCorrectOption) return Colors.green;
                       if (isSelected && !isCorrectOption) return Colors.red;
-                      return theme.colorScheme.outline.withOpacity(0.5);
+                      return theme.colorScheme.outline.withValues(alpha: 0.5);
                     }
 
                     return InkWell(
@@ -204,7 +204,7 @@ class _QuizGameState extends ConsumerState<QuizGame> {
                               height: 32,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: theme.colorScheme.primary.withOpacity(0.1),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.1),
                               ),
                               alignment: Alignment.center,
                               child: Text(

@@ -94,7 +94,7 @@ class GameSelectionScreen extends ConsumerWidget {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: (game['color'] as Color).withOpacity(0.2),
+                          color: (game['color'] as Color).withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(

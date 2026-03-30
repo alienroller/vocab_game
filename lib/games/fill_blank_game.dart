@@ -273,7 +273,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: (_isCorrect ? Colors.green : Colors.red).withOpacity(0.1),
+                      color: (_isCorrect ? Colors.green : Colors.red).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(

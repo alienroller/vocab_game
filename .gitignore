@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Supabase credentials — NEVER commit with real keys
+lib/config/supabase_config.dart
+
+# Analyzer temp files
+analyze_*.txt
+
+# Content pipeline outputs
+tools/content_pipeline/node_modules/
+tools/content_pipeline/output_*.json
+tools/content_pipeline/output_*.txt

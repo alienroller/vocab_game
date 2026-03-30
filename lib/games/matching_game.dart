@@ -138,7 +138,7 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
                           duration: const Duration(milliseconds: 300),
                           child: Material(
                             color: isMatched 
-                                ? theme.colorScheme.surfaceContainerHighest.withOpacity(0.5)
+                                ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
                                 : isSelected 
                                     ? theme.colorScheme.primaryContainer
                                     : theme.colorScheme.surface,
@@ -181,7 +181,7 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
                           duration: const Duration(milliseconds: 300),
                           child: Material(
                             color: isMatched 
-                                ? theme.colorScheme.surfaceContainerHighest.withOpacity(0.5)
+                                ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
                                 : isSelected 
                                     ? theme.colorScheme.tertiaryContainer
                                     : theme.colorScheme.surface,
