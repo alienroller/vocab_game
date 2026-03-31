@@ -1555,7 +1555,7 @@ flutter pub get
 Create a file `lib/config/supabase_config.dart`:
 
 ```dart
-// lib/config/supabase_config.dart
+// lib/config/supabase_config.dart.dart
 // DO NOT commit this file with real values to a public repo.
 // Use --dart-define or a .env approach for production.
 
@@ -1587,7 +1587,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'config/supabase_config.dart';
+import 'config/supabase_config.dart.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
