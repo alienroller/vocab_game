@@ -5,9 +5,14 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config/supabase_config.dart';
+import 'models/user_profile.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding/welcome_screen.dart';
+import 'services/notification_service.dart';
 import 'services/storage_service.dart';
+import 'services/streak_service.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide StorageException;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +28,9 @@ void main() async {
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
+
+  // Initialize local notifications (streak warnings, duel alerts)
+  await NotificationService.initialize();
 
   runApp(const ProviderScope(child: VocabGameApp()));
 }
@@ -75,8 +83,85 @@ class VocabGameApp extends StatelessWidget {
 }
 
 /// Routes to onboarding or home based on whether the user has onboarded.
-class _AppRouter extends StatelessWidget {
+/// Also checks streak status on app open.
+class _AppRouter extends StatefulWidget {
   const _AppRouter();
+
+  @override
+  State<_AppRouter> createState() => _AppRouterState();
+}
+
+class _AppRouterState extends State<_AppRouter> {
+  @override
+  void initState() {
+    super.initState();
+    _checkStreakOnOpen();
+  }
+
+  void _checkStreakOnOpen() {
+    final profileBox = Hive.box('userProfile');
+    final id = profileBox.get('id') as String?;
+    if (id == null) return; // Not onboarded yet
+
+    // Build a profile to check streak
+    final profile = UserProfile()
+      ..id = id
+      ..username = profileBox.get('username', defaultValue: '') as String
+      ..xp = profileBox.get('xp', defaultValue: 0) as int
+      ..level = profileBox.get('level', defaultValue: 1) as int
+      ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
+      ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
+      ..classCode = profileBox.get('classCode') as String?
+      ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
+      ..totalWordsAnswered = profileBox.get('totalWordsAnswered', defaultValue: 0) as int
+      ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int;
+
+    // Check if streak was broken while app was closed
+    StreakService.checkStreakOnAppOpen(profile);
+
+    // Persist any streak reset back to Hive
+    profileBox.put('streakDays', profile.streakDays);
+
+    // Show streak warning notification if they haven't played today
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    if (profile.lastPlayedDate != today && profile.streakDays >= 2) {
+      NotificationService.showStreakWarning(profile.streakDays);
+    }
+
+    // Subscribe to incoming duel challenges
+    _subscribeToDuelChallenges(id);
+  }
+
+  void _subscribeToDuelChallenges(String myId) {
+    try {
+      Supabase.instance.client
+          .channel('incoming-duels')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'duels',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'opponent_id',
+              value: myId,
+            ),
+            callback: (payload) {
+              final challenger =
+                  payload.newRecord['challenger_username'] as String? ?? 'Someone';
+              NotificationService.notifyDuelChallenge(challenger);
+            },
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    try {
+      Supabase.instance.client.channel('incoming-duels').unsubscribe();
+    } catch (_) {}
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

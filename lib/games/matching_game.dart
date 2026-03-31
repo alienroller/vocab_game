@@ -1,9 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../screens/result_screen.dart';
+import '../services/xp_service.dart';
+import 'game_streak_mixin.dart';
 
 class MatchingGame extends ConsumerStatefulWidget {
   const MatchingGame({super.key});
@@ -12,7 +15,8 @@ class MatchingGame extends ConsumerStatefulWidget {
   ConsumerState<MatchingGame> createState() => _MatchingGameState();
 }
 
-class _MatchingGameState extends ConsumerState<MatchingGame> {
+class _MatchingGameState extends ConsumerState<MatchingGame>
+    with GameStreakMixin {
   late List<Vocab> _gameWords;
   late List<Vocab> _leftColumn;
   late List<Vocab> _rightColumn;
@@ -23,11 +27,13 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
   final Set<String> _matchedIds = {};
   int _score = 0;
   int _moves = 0;
+  int _totalXp = 0;
 
   @override
   void initState() {
     super.initState();
     _initGame();
+    checkAndShowStreak();
   }
 
   void _initGame() {
@@ -46,6 +52,7 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
     _selectedRight = null;
     _score = 0;
     _moves = 0;
+    _totalXp = 0;
   }
 
   void _handleTap(Vocab word, bool isLeft) {
@@ -66,6 +73,15 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
       if (isMatch) {
         _matchedIds.add(_selectedLeft!.id);
         _score++;
+        // Award XP per correct match
+        final streakDays =
+            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+        _totalXp += XpService.calculateXp(
+          correct: true,
+          secondsLeft: 15,
+          maxSeconds: 20,
+          streakDays: streakDays,
+        );
         _selectedLeft = null;
         _selectedRight = null;
         
@@ -76,9 +92,10 @@ class _MatchingGameState extends ConsumerState<MatchingGame> {
               context,
               MaterialPageRoute(
                 builder: (_) => ResultScreen(
-                  score: _score, // Used as basic points here
-                  total: _moves, // Show moves instead of total points
+                  score: _score,
+                  total: _moves,
                   gameName: 'Matching',
+                  xpGained: _totalXp,
                   onPlayAgain: () => setState(() => _initGame()),
                 ),
               ),

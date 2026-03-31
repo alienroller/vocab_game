@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/profile_provider.dart';
 import '../widgets/xp_bar_widget.dart';
@@ -13,6 +15,7 @@ import 'leaderboard_screen.dart';
 import 'library/library_screen.dart';
 import 'hall_of_fame_screen.dart';
 import 'profile_screen.dart';
+import 'duel/duel_lobby_screen.dart';
 
 /// Home screen with XP bar, streak counter, vocabulary list, and navigation
 /// to the competitive features (Library, Leaderboard, Hall of Fame, Profile).
@@ -27,6 +30,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _englishController = TextEditingController();
   final _uzbekController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  String? _rivalName;
+  int _rivalXpGap = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRival();
+  }
+
+  /// Finds the player directly above you on the class leaderboard
+  void _fetchRival() async {
+    final profileBox = Hive.box('userProfile');
+    final classCode = profileBox.get('classCode') as String?;
+    final myUsername = profileBox.get('username') as String?;
+    if (classCode == null || classCode.isEmpty || myUsername == null) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('username, xp')
+          .eq('class_code', classCode)
+          .order('xp', ascending: false)
+          .limit(50);
+
+      final list = List<Map<String, dynamic>>.from(data);
+      for (int i = 0; i < list.length; i++) {
+        if (list[i]['username'] == myUsername && i > 0) {
+          final rival = list[i - 1];
+          if (mounted) {
+            setState(() {
+              _rivalName = rival['username'] as String?;
+              _rivalXpGap = (rival['xp'] as int) - (list[i]['xp'] as int);
+            });
+          }
+          break;
+        }
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -104,6 +146,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         profile?.streakDays ?? profileBox.get('streakDays', defaultValue: 0) as int;
     final username =
         profile?.username ?? profileBox.get('username', defaultValue: '') as String;
+    final lastPlayed = profile?.lastPlayedDate ??
+        profileBox.get('lastPlayedDate') as String?;
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final needsToPlayToday = streakDays > 0 && lastPlayed != today;
 
     return Scaffold(
       appBar: AppBar(
@@ -155,6 +201,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
+          // ─── Streak "Play Today" Banner ─────────────────────
+          if (needsToPlayToday)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Text('🔥', style: TextStyle(fontSize: 20)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Play today to keep your $streakDays-day streak alive!',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange.shade800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // ─── Rival Card ────────────────────────────────────
+          if (_rivalName != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.red.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Text('⚔️', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Your rival: $_rivalName — you\'re $_rivalXpGap XP behind',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.red.shade700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // ─── Quick Actions (Library, Leaderboard, Hall) ──────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -189,6 +295,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     context,
                     MaterialPageRoute(
                         builder: (_) => const HallOfFameScreen()),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _QuickAction(
+                  icon: Icons.sports_kabaddi,
+                  label: 'Duels',
+                  color: Colors.red.shade600,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const DuelLobbyScreen()),
                   ),
                 ),
               ],

@@ -1,9 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../screens/result_screen.dart';
+import '../services/xp_service.dart';
+import 'game_streak_mixin.dart';
 
 class FillBlankGame extends ConsumerStatefulWidget {
   const FillBlankGame({super.key});
@@ -12,7 +15,8 @@ class FillBlankGame extends ConsumerStatefulWidget {
   ConsumerState<FillBlankGame> createState() => _FillBlankGameState();
 }
 
-class _FillBlankGameState extends ConsumerState<FillBlankGame> {
+class _FillBlankGameState extends ConsumerState<FillBlankGame>
+    with GameStreakMixin {
   late List<Vocab> _gameVocab;
   int _currentIndex = 0;
   int _score = 0;
@@ -26,6 +30,8 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
   
   bool _answered = false;
   bool _isCorrect = false;
+  int _totalXp = 0;
+  late DateTime _questionStartTime;
 
   @override
   void initState() {
@@ -36,6 +42,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
       _gameVocab = _gameVocab.sublist(0, 10);
     }
     _setupQuestion();
+    checkAndShowStreak();
   }
 
   @override
@@ -75,6 +82,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
     _controller.clear();
     _answered = false;
     _isCorrect = false;
+    _questionStartTime = DateTime.now();
     
     // Auto-focus after a short delay
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -93,6 +101,17 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
       
       if (_isCorrect) {
         _score++;
+        // Calculate XP with speed bonus
+        final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
+        final secondsLeft = max(0, 20 - elapsed);
+        final streakDays =
+            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+        _totalXp += XpService.calculateXp(
+          correct: true,
+          secondsLeft: secondsLeft,
+          maxSeconds: 20,
+          streakDays: streakDays,
+        );
       }
     });
     
@@ -114,10 +133,12 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame> {
               score: _score,
               total: _gameVocab.length,
               gameName: 'Fill in the Blank',
+              xpGained: _totalXp,
               onPlayAgain: () {
                 setState(() {
                   _currentIndex = 0;
                   _score = 0;
+                  _totalXp = 0;
                   _gameVocab.shuffle(Random());
                   _setupQuestion();
                 });

@@ -1,8 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../providers/vocab_provider.dart';
 import '../screens/result_screen.dart';
+import '../services/xp_service.dart';
+import 'game_streak_mixin.dart';
 
 class MemoryCard {
   final String id;
@@ -27,9 +30,11 @@ class MemoryGame extends ConsumerStatefulWidget {
   ConsumerState<MemoryGame> createState() => _MemoryGameState();
 }
 
-class _MemoryGameState extends ConsumerState<MemoryGame> {
+class _MemoryGameState extends ConsumerState<MemoryGame>
+    with GameStreakMixin {
   late List<MemoryCard> _cards;
   int _moves = 0;
+  int _totalXp = 0;
   List<int> _flippedIndices = [];
   bool _isProcessing = false;
 
@@ -37,6 +42,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
   void initState() {
     super.initState();
     _initGame();
+    checkAndShowStreak();
   }
 
   void _initGame() {
@@ -66,6 +72,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
     
     _cards.shuffle(random);
     _moves = 0;
+    _totalXp = 0;
     _flippedIndices = [];
     _isProcessing = false;
   }
@@ -93,6 +100,16 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
           _flippedIndices.clear();
           _isProcessing = false;
         });
+
+        // Award XP per pair match
+        final streakDays =
+            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+        _totalXp += XpService.calculateXp(
+          correct: true,
+          secondsLeft: 15,
+          maxSeconds: 20,
+          streakDays: streakDays,
+        );
         
         // Check win
         if (_cards.every((card) => card.isMatched)) {
@@ -105,6 +122,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame> {
                   score: _cards.length ~/ 2,
                   total: _moves,
                   gameName: 'Memory',
+                  xpGained: _totalXp,
                   onPlayAgain: () => setState(() => _initGame()),
                 ),
               ),

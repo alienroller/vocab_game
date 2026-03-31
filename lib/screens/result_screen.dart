@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../providers/profile_provider.dart';
+import '../services/notification_service.dart';
 import '../widgets/custom_button.dart';
 
-class ResultScreen extends StatelessWidget {
+/// Result screen shown after a game session.
+///
+/// Now integrates with the competitive system: displays XP earned,
+/// syncs profile to Supabase, and cancels streak warnings.
+class ResultScreen extends ConsumerStatefulWidget {
   final int score;
   final int total;
   final String gameName;
   final VoidCallback onPlayAgain;
+  final int xpGained;
 
   const ResultScreen({
     super.key,
@@ -13,17 +22,52 @@ class ResultScreen extends StatelessWidget {
     required this.total,
     required this.gameName,
     required this.onPlayAgain,
+    this.xpGained = 0,
   });
+
+  @override
+  ConsumerState<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends ConsumerState<ResultScreen> {
+  bool _synced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncProfile();
+  }
+
+  Future<void> _syncProfile() async {
+    if (_synced) return;
+    _synced = true;
+
+    final notifier = ref.read(profileProvider.notifier);
+
+    // Award XP if any was earned
+    if (widget.xpGained > 0) {
+      await notifier.addXp(widget.xpGained);
+    }
+
+    // Record answers for accuracy stats
+    await notifier.recordAnswer(correct: widget.score > 0);
+
+    // Cancel streak warning — they played today
+    await NotificationService.cancelStreakWarning();
+
+    // Sync to cloud
+    await notifier.sync();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isSuccess = (score / total) >= 0.7;
+    final isSuccess = (widget.score / widget.total) >= 0.7;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('$gameName Results'),
-        automaticallyImplyLeading: false, // Force use of explicit buttons
+        title: Text('${widget.gameName} Results'),
+        automaticallyImplyLeading: false,
       ),
       body: Center(
         child: Padding(
@@ -36,7 +80,8 @@ class ResultScreen extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: (isSuccess ? Colors.green : Colors.orange).withValues(alpha: 0.2),
+                    color: (isSuccess ? Colors.green : Colors.orange)
+                        .withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -59,27 +104,58 @@ class ResultScreen extends StatelessWidget {
                 style: theme.textTheme.titleMedium,
               ),
               Text(
-                '$score / $total',
+                '${widget.score} / ${widget.total}',
                 style: theme.textTheme.displayLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: theme.colorScheme.primary,
                 ),
               ),
+              // XP gained display
+              if (widget.xpGained > 0) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.amber.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt,
+                          color: Colors.amber.shade700, size: 28),
+                      const SizedBox(width: 8),
+                      Text(
+                        '+${widget.xpGained} XP',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 48),
               CustomButton(
                 text: 'Play Again',
                 icon: Icons.replay,
                 isFullWidth: true,
                 onPressed: () {
-                  Navigator.pop(context); // Pop result screen
-                  onPlayAgain(); // Start game over
+                  Navigator.pop(context);
+                  widget.onPlayAgain();
                 },
               ),
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.pop(context); // Pop result screen
-                  Navigator.pop(context); // Pop game screen
+                  Navigator.pop(context);
+                  Navigator.pop(context);
                 },
                 icon: const Icon(Icons.list),
                 label: const Text('Back to Games'),

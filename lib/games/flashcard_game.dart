@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import 'game_streak_mixin.dart';
 
 class FlashcardGame extends ConsumerStatefulWidget {
   const FlashcardGame({super.key});
@@ -11,7 +12,8 @@ class FlashcardGame extends ConsumerStatefulWidget {
   ConsumerState<FlashcardGame> createState() => _FlashcardGameState();
 }
 
-class _FlashcardGameState extends ConsumerState<FlashcardGame> {
+class _FlashcardGameState extends ConsumerState<FlashcardGame>
+    with GameStreakMixin {
   late PageController _pageController;
   late List<Vocab> _shuffledVocab;
   int _currentIndex = 0;
@@ -21,9 +23,9 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    // Getting state in initState of ConsumerStatefulWidget
     final vocabList = ref.read(vocabProvider);
     _shuffledVocab = List.from(vocabList)..shuffle(Random());
+    checkAndShowStreak();
   }
 
   @override

@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'duel/duel_lobby_screen.dart';
 
 /// Leaderboard screen with three tabs: My Class, Global, This Week.
 ///
@@ -22,6 +26,8 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
   bool _loading = true;
   String? _classCode;
   String? _myUsername;
+  Timer? _countdownTimer;
+  String _weeklyCountdown = '';
 
   @override
   void initState() {
@@ -29,6 +35,31 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
     _subscribeToRealtime();
+    _startWeeklyCountdown();
+  }
+
+  void _startWeeklyCountdown() {
+    _updateCountdown();
+    _countdownTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _updateCountdown(),
+    );
+  }
+
+  void _updateCountdown() {
+    final now = DateTime.now().toUtc();
+    // Next Monday 00:00 UTC
+    final daysUntilMonday = (DateTime.monday - now.weekday) % 7;
+    final nextMonday = DateTime.utc(
+      now.year, now.month, now.day + (daysUntilMonday == 0 ? 7 : daysUntilMonday),
+    );
+    final diff = nextMonday.difference(now);
+    if (mounted) {
+      setState(() {
+        _weeklyCountdown =
+            'Resets in ${diff.inDays}d ${diff.inHours % 24}h ${diff.inMinutes % 60}m';
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -124,16 +155,51 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildBoard(_classBoard, scoreKey: 'xp'),
+                _buildBoard(_classBoard, scoreKey: 'xp', showChallenge: true),
                 _buildBoard(_globalBoard, scoreKey: 'xp'),
-                _buildBoard(_weekBoard, scoreKey: 'week_xp'),
+                _buildWeeklyBoard(),
               ],
             ),
     );
   }
 
+  /// Wraps the weekly board with a countdown header
+  Widget _buildWeeklyBoard() {
+    return Column(
+      children: [
+        if (_weeklyCountdown.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+            color: Theme.of(context)
+                .colorScheme
+                .primaryContainer
+                .withValues(alpha: 0.3),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.timer_outlined,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  _weeklyCountdown,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        Expanded(child: _buildBoard(_weekBoard, scoreKey: 'week_xp')),
+      ],
+    );
+  }
+
   Widget _buildBoard(List<Map<String, dynamic>> entries,
-      {required String scoreKey}) {
+      {required String scoreKey, bool showChallenge = false}) {
     if (entries.isEmpty) {
       return Center(
         child: Column(
@@ -202,15 +268,34 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
                 ),
               ),
               subtitle: Text('Level ${entry['level'] ?? 1}'),
-              trailing: Text(
-                '${entry[scoreKey] ?? 0} XP',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: isMe
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showChallenge && !isMe)
+                    IconButton(
+                      icon: Icon(Icons.sports_kabaddi,
+                          color: Colors.red.shade400, size: 20),
+                      tooltip: 'Challenge to duel',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const DuelLobbyScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  Text(
+                    '${entry[scoreKey] ?? 0} XP',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: isMe
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -222,6 +307,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _countdownTimer?.cancel();
     Supabase.instance.client.channel('leaderboard-updates').unsubscribe();
     super.dispose();
   }

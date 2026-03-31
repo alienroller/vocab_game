@@ -158,17 +158,41 @@ class DuelResultsScreen extends StatelessWidget {
               ),
               const Spacer(),
 
-              // Buttons
+              // Rematch button (for loser or draw)
+              if (!didWin || isDraw) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      // Pop back to lobby to challenge again
+                      Navigator.of(context)
+                          .popUntil((route) => route.isFirst);
+                    },
+                    icon: const Icon(Icons.replay),
+                    label: const Text('Rematch!',
+                        style: TextStyle(fontSize: 18)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // Back to Home
               SizedBox(
                 width: double.infinity,
                 height: 56,
-                child: FilledButton(
+                child: OutlinedButton(
                   onPressed: () {
-                    // Pop back to the lobby
                     Navigator.of(context)
                         .popUntil((route) => route.isFirst);
                   },
-                  style: FilledButton.styleFrom(
+                  style: OutlinedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),

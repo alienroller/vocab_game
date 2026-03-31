@@ -1,6 +1,15 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../models/user_profile.dart';
+import '../../models/vocab.dart';
+import '../../services/sync_service.dart';
+import '../../services/word_session_service.dart';
+import '../../services/xp_service.dart';
 
 /// Library screen — the student's entry point to all word content.
 ///
@@ -270,6 +279,7 @@ class UnitListScreen extends StatefulWidget {
 class _UnitListScreenState extends State<UnitListScreen> {
   List<Map<String, dynamic>> _units = [];
   bool _loading = true;
+  bool _launching = false;
 
   @override
   void initState() {
@@ -295,6 +305,58 @@ class _UnitListScreenState extends State<UnitListScreen> {
       if (mounted) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _playUnit(Map<String, dynamic> unit) async {
+    if (_launching) return;
+    setState(() => _launching = true);
+
+    try {
+      // Load the best 10 words for this unit via spaced repetition
+      final words = await WordSessionService.selectSessionWords(
+        unitId: unit['id'] as String,
+      );
+
+      if (words.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No words found in this unit.')),
+          );
+        }
+        return;
+      }
+
+      // Convert Supabase words to local Vocab model
+      final vocabWords = words
+          .map((w) => Vocab(
+                id: w['id'] as String,
+                english: w['word'] as String,
+                uzbek: w['translation'] as String,
+              ))
+          .toList();
+
+      if (!mounted) return;
+
+      // Navigate to game selection with loaded words
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _UnitGameSelectionScreen(
+            unitTitle: unit['title'] as String? ?? 'Unit',
+            unitId: unit['id'] as String,
+            words: vocabWords,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading words: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _launching = false);
     }
   }
 
@@ -342,16 +404,17 @@ class _UnitListScreenState extends State<UnitListScreen> {
                           ],
                         ),
                         trailing: FilledButton(
-                          onPressed: () {
-                            // TODO: navigate to game session with unit words
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                    'Starting session for: ${unit['title']}'),
-                              ),
-                            );
-                          },
-                          child: const Text('Play'),
+                          onPressed: _launching ? null : () => _playUnit(unit),
+                          child: _launching
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Play'),
                         ),
                       ),
                     );
@@ -360,3 +423,490 @@ class _UnitListScreenState extends State<UnitListScreen> {
     );
   }
 }
+
+// ─── Unit Game Selection Screen ──────────────────────────────────────
+
+/// Game selection screen specifically for Supabase unit words.
+/// Shows the same game types but uses pre-loaded words instead of Hive vocab.
+class _UnitGameSelectionScreen extends StatelessWidget {
+  final String unitTitle;
+  final String unitId;
+  final List<Vocab> words;
+
+  const _UnitGameSelectionScreen({
+    required this.unitTitle,
+    required this.unitId,
+    required this.words,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final games = [
+      {
+        'title': 'Quiz',
+        'icon': Icons.quiz,
+        'color': Colors.green,
+        'description': 'Test your knowledge with multiple choice',
+      },
+      {
+        'title': 'Flashcards',
+        'icon': Icons.style,
+        'color': Colors.blue,
+        'description': 'Flip cards to memorize vocabulary',
+      },
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(unitTitle),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              '${words.length} words loaded — choose a game:',
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: games.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final game = games[index];
+                return Card(
+                  elevation: 2,
+                  clipBehavior: Clip.antiAlias,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UnitQuizGame(
+                            unitId: unitId,
+                            unitTitle: unitTitle,
+                            words: words,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: (game['color'] as Color)
+                                  .withValues(alpha: 0.2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              game['icon'] as IconData,
+                              size: 32,
+                              color: game['color'] as Color,
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  game['title'] as String,
+                                  style:
+                                      theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  game['description'] as String,
+                                  style:
+                                      theme.textTheme.bodyMedium?.copyWith(
+                                    color:
+                                        theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right,
+                              color: theme.colorScheme.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Unit Quiz Game ──────────────────────────────────────────────────
+
+/// Quiz game that uses Supabase-loaded words with XP, mastery tracking,
+/// and speed bonuses.
+class UnitQuizGame extends StatefulWidget {
+  final String unitId;
+  final String unitTitle;
+  final List<Vocab> words;
+
+  const UnitQuizGame({
+    super.key,
+    required this.unitId,
+    required this.unitTitle,
+    required this.words,
+  });
+
+  @override
+  State<UnitQuizGame> createState() => _UnitQuizGameState();
+}
+
+class _UnitQuizGameState extends State<UnitQuizGame> {
+  late List<Vocab> _quizWords;
+  int _currentIndex = 0;
+  int _score = 0;
+  int _totalXp = 0;
+  List<String> _options = [];
+  bool _answered = false;
+  int? _selectedIndex;
+  late DateTime _questionStartTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _quizWords = List.from(widget.words)..shuffle(Random());
+    _generateOptions();
+  }
+
+  void _generateOptions() {
+    final current = _quizWords[_currentIndex];
+    final distractors = widget.words
+        .where((v) => v.id != current.id)
+        .toList()
+      ..shuffle(Random());
+    final wrongAnswers =
+        distractors.take(3).map((v) => v.uzbek).toList();
+    _options = [current.uzbek, ...wrongAnswers]..shuffle(Random());
+    _answered = false;
+    _selectedIndex = null;
+    _questionStartTime = DateTime.now();
+  }
+
+  void _onAnswer(int index) {
+    if (_answered) return;
+
+    final isCorrect = _options[index] == _quizWords[_currentIndex].uzbek;
+    final elapsed =
+        DateTime.now().difference(_questionStartTime).inSeconds;
+    final secondsLeft = max(0, 20 - elapsed);
+
+    // Calculate XP via speed bonus
+    final streakDays =
+        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+    final xpGained = XpService.calculateXp(
+      correct: isCorrect,
+      secondsLeft: secondsLeft,
+      maxSeconds: 20,
+      streakDays: streakDays,
+    );
+
+    setState(() {
+      _answered = true;
+      _selectedIndex = index;
+      if (isCorrect) {
+        _score++;
+        _totalXp += xpGained;
+      }
+    });
+
+    // Record mastery for this word
+    WordSessionService.recordAnswer(
+      wordId: _quizWords[_currentIndex].id,
+      isCorrect: isCorrect,
+    );
+
+    // Advance after short delay
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      if (_currentIndex < _quizWords.length - 1) {
+        setState(() {
+          _currentIndex++;
+          _generateOptions();
+        });
+      } else {
+        _finishGame();
+      }
+    });
+  }
+
+  Future<void> _finishGame() async {
+    // Award XP locally
+    final box = Hive.box('userProfile');
+    final currentXp = box.get('xp', defaultValue: 0) as int;
+    final newXp = currentXp + _totalXp;
+    await box.put('xp', newXp);
+    await box.put('level', XpService.levelFromXp(newXp));
+    final currentWeekXp = box.get('weekXp', defaultValue: 0) as int;
+    await box.put('weekXp', currentWeekXp + _totalXp);
+
+    // Update stats
+    final answered =
+        box.get('totalWordsAnswered', defaultValue: 0) as int;
+    await box.put('totalWordsAnswered', answered + _quizWords.length);
+    final correct = box.get('totalCorrect', defaultValue: 0) as int;
+    await box.put('totalCorrect', correct + _score);
+
+    // Sync to Supabase
+    final profile = UserProfile()
+      ..id = box.get('id', defaultValue: '') as String
+      ..username = box.get('username', defaultValue: '') as String
+      ..xp = newXp
+      ..level = XpService.levelFromXp(newXp)
+      ..streakDays = box.get('streakDays', defaultValue: 0) as int
+      ..lastPlayedDate = box.get('lastPlayedDate') as String?
+      ..classCode = box.get('classCode') as String?
+      ..weekXp = box.get('weekXp', defaultValue: 0) as int
+      ..totalWordsAnswered = box.get('totalWordsAnswered', defaultValue: 0) as int
+      ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int;
+    SyncService.syncProfile(profile);
+
+    if (!mounted) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _UnitResultScreen(
+          unitTitle: widget.unitTitle,
+          score: _score,
+          total: _quizWords.length,
+          xpGained: _totalXp,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final current = _quizWords[_currentIndex];
+    final progress = (_currentIndex + 1) / _quizWords.length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.unitTitle),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                '${_currentIndex + 1}/${_quizWords.length}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              // Progress bar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 6,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // XP counter
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Score: $_score',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('⚡ $_totalXp XP',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber.shade700,
+                      )),
+                ],
+              ),
+              const Spacer(),
+              // Question
+              Text(
+                current.english,
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'What is the Uzbek translation?',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              // Options
+              ...List.generate(_options.length, (i) {
+                Color? bgColor;
+                if (_answered) {
+                  if (_options[i] == current.uzbek) {
+                    bgColor = Colors.green.withValues(alpha: 0.2);
+                  } else if (i == _selectedIndex) {
+                    bgColor = Colors.red.withValues(alpha: 0.2);
+                  }
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: OutlinedButton(
+                      onPressed: _answered ? null : () => _onAnswer(i),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: bgColor,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        side: BorderSide(
+                          color: _answered && _options[i] == current.uzbek
+                              ? Colors.green
+                              : theme.colorScheme.outline,
+                        ),
+                      ),
+                      child: Text(
+                        _options[i],
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Unit Result Screen ──────────────────────────────────────────────
+
+class _UnitResultScreen extends StatelessWidget {
+  final String unitTitle;
+  final int score;
+  final int total;
+  final int xpGained;
+
+  const _UnitResultScreen({
+    required this.unitTitle,
+    required this.score,
+    required this.total,
+    required this.xpGained,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percent = total > 0 ? (score / total * 100).round() : 0;
+    final emoji = percent >= 80
+        ? '🏆'
+        : percent >= 50
+            ? '👍'
+            : '💪';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Results')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 64)),
+              const SizedBox(height: 24),
+              Text(
+                '$score / $total correct',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$percent% accuracy',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '+$xpGained XP',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber.shade700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                unitTitle,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: () =>
+                      Navigator.popUntil(context, (route) => route.isFirst),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text('Back to Home',
+                      style: TextStyle(fontSize: 18)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

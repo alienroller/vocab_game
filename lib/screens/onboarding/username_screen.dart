@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../providers/profile_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/sync_service.dart';
 import 'join_class_screen.dart';
 
@@ -79,6 +80,9 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
       await ref
           .read(profileProvider.notifier)
           .createProfile(id: userId, username: username);
+
+      // Request notification permission (iOS + Android 13+)
+      await NotificationService.requestPermission();
 
       if (mounted) {
         Navigator.pushReplacement(

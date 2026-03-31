@@ -1,9 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../screens/result_screen.dart';
+import '../services/xp_service.dart';
+import '../widgets/xp_float_widget.dart';
+import 'game_streak_mixin.dart';
 
 class QuizGame extends ConsumerStatefulWidget {
   const QuizGame({super.key});
@@ -12,25 +16,30 @@ class QuizGame extends ConsumerStatefulWidget {
   ConsumerState<QuizGame> createState() => _QuizGameState();
 }
 
-class _QuizGameState extends ConsumerState<QuizGame> {
+class _QuizGameState extends ConsumerState<QuizGame>
+    with GameStreakMixin {
   late List<Vocab> _allVocab;
   late List<Vocab> _quizVocab;
   int _currentIndex = 0;
   int _score = 0;
+  int _totalXp = 0;
+  int _lastXpGain = 0;
+  bool _showXpFloat = false;
   List<String> _currentOptions = [];
   bool _answered = false;
   int? _selectedIndex;
+  late DateTime _questionStartTime;
 
   @override
   void initState() {
     super.initState();
     _allVocab = ref.read(vocabProvider);
     _quizVocab = List.from(_allVocab)..shuffle(Random());
-    // Limit to max 10 questions for a quick game, or all if less
     if (_quizVocab.length > 10) {
       _quizVocab = _quizVocab.sublist(0, 10);
     }
     _generateOptions();
+    checkAndShowStreak();
   }
 
   void _generateOptions() {
@@ -49,6 +58,7 @@ class _QuizGameState extends ConsumerState<QuizGame> {
     _currentOptions.shuffle(random);
     _answered = false;
     _selectedIndex = null;
+    _questionStartTime = DateTime.now();
   }
 
   void _checkAnswer(int index) {
@@ -56,12 +66,38 @@ class _QuizGameState extends ConsumerState<QuizGame> {
     
     final selectedUzbek = _currentOptions[index];
     final isCorrect = selectedUzbek == _quizVocab[_currentIndex].uzbek;
-    
+
+    // Calculate XP for this answer
+    final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
+    final secondsLeft = max(0, 20 - elapsed);
+    final streakDays =
+        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+    final xpGained = XpService.calculateXp(
+      correct: isCorrect,
+      secondsLeft: secondsLeft,
+      maxSeconds: 20,
+      streakDays: streakDays,
+    );
+
     setState(() {
       _answered = true;
       _selectedIndex = index;
-      if (isCorrect) _score++;
+      if (isCorrect) {
+        _score++;
+        _totalXp += xpGained;
+        _lastXpGain = xpGained;
+        _showXpFloat = true;
+      } else {
+        _showXpFloat = false;
+      }
     });
+
+    // Hide XP float after animation
+    if (isCorrect) {
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted) setState(() => _showXpFloat = false);
+      });
+    }
 
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (!mounted) return;
@@ -80,10 +116,12 @@ class _QuizGameState extends ConsumerState<QuizGame> {
               score: _score,
               total: _quizVocab.length,
               gameName: 'Quiz',
+              xpGained: _totalXp,
               onPlayAgain: () {
                 setState(() {
                   _currentIndex = 0;
                   _score = 0;
+                  _totalXp = 0;
                   _quizVocab.shuffle(Random());
                   _generateOptions();
                 });
@@ -123,7 +161,9 @@ class _QuizGameState extends ConsumerState<QuizGame> {
           ),
         ),
       ),
-      body: SafeArea(
+      body: Stack(
+        children: [
+          SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -238,6 +278,21 @@ class _QuizGameState extends ConsumerState<QuizGame> {
             ],
           ),
         ),
+          ),
+          // XP float animation overlay
+          if (_showXpFloat)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.35,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: XpFloatWidget(
+                  key: ValueKey('xp_$_currentIndex$_lastXpGain'),
+                  xp: _lastXpGain,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
