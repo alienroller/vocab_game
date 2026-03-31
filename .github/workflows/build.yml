@@ -5,30 +5,32 @@ on:
     branches:
       - main
 
+env:
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  CHAT_ID: ${{ secrets.CHAT_ID }}
+
 jobs:
   build_android:
-    strategy:
-      matrix:
-        app_name: ["vocab_game"]
-        app_version: ["v1.0.${{ github.run_number }}"]
-        flutter_version: ["3.38.1"]
-        java_version: ["17"]
-        os: ["ubuntu-latest"]
-        comment: ["git log -1 --pretty=%B"]
-
     name: Build Android App
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{matrix.flutter_version}}
+          flutter-version: '3.29.3'
+          cache: true
 
-      - name: Cache Flutter dependencies
+      - name: Cache pub dependencies
         uses: actions/cache@v4
         with:
           path: ~/.pub-cache
@@ -39,24 +41,34 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Set up Java
-        uses: actions/setup-java@v2
-        with:
-          distribution: 'zulu'
-          java-version: ${{matrix.java_version}}
-
-      - name: Build Android
-        run: flutter build apk --release --dart-define=SUPABASE_URL=$SUPABASE_URL --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-
-      - name: Upload apk to Telegram
+      - name: Create key.properties
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/${{matrix.app_name}}-${{matrix.app_version}}.apk
-          curl -F document=@build/app/outputs/flutter-apk/${{matrix.app_name}}-${{matrix.app_version}}.apk \
-               -F chat_id=$CHAT_ID \
-               -F caption="Android APK version ${{matrix.app_version}} \n${{matrix.comment}}" \
-               https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument
-env:
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  CHAT_ID: ${{ secrets.CHAT_ID }}
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> android/key.properties
+          echo "storeFile=keystore.jks" >> android/key.properties
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystore.jks
+
+      - name: Build Android APK
+        run: |
+          flutter build apk --release --split-per-abi \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Upload APK to Telegram
+        run: |
+          VERSION="v1.0.${{ github.run_number }}"
+          COMMENT=$(git log -1 --pretty=%B)
+          APK_SRC="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          APK_DST="build/app/outputs/flutter-apk/vocab_game-${VERSION}.apk"
+
+          mv "$APK_SRC" "$APK_DST"
+
+          curl -F "document=@${APK_DST}" \
+               -F "chat_id=${CHAT_ID}" \
+               -F "caption=Android APK ${VERSION}
+          ${COMMENT}" \
+               "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
