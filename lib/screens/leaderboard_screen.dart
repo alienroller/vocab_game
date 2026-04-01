@@ -69,7 +69,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     final supabase = Supabase.instance.client;
 
     try {
-      // Fetch all three boards
+      // Fetch global board
       final globalFuture = supabase
           .from('profiles')
           .select('username, xp, level')
@@ -77,7 +77,6 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
           .limit(100);
 
       List<dynamic> classFuture = [];
-      List<dynamic> weekFuture = [];
 
       if (_classCode != null && _classCode!.isNotEmpty) {
         classFuture = await supabase
@@ -86,11 +85,21 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
             .eq('class_code', _classCode!)
             .order('xp', ascending: false)
             .limit(50);
+      }
 
+      // Weekly board: load class-scoped if class exists, otherwise global
+      List<dynamic> weekFuture;
+      if (_classCode != null && _classCode!.isNotEmpty) {
         weekFuture = await supabase
             .from('profiles')
             .select('username, week_xp, level')
             .eq('class_code', _classCode!)
+            .order('week_xp', ascending: false)
+            .limit(50);
+      } else {
+        weekFuture = await supabase
+            .from('profiles')
+            .select('username, week_xp, level')
             .order('week_xp', ascending: false)
             .limit(50);
       }

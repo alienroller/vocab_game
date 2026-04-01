@@ -1,5 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
@@ -31,6 +32,7 @@ class SyncService {
           'week_xp': profile.weekXp,
           'total_words_answered': profile.totalWordsAnswered,
           'total_correct': profile.totalCorrect,
+          'is_teacher': profile.isTeacher,
           'updated_at': DateTime.now().toIso8601String(),
         },
         onConflict: 'id',
@@ -63,7 +65,7 @@ class SyncService {
 
   /// Checks if a username is already taken in Supabase.
   ///
-  /// Used during onboarding for real-time uniqueness validation.
+  /// Used during onboarding and profile editing for uniqueness validation.
   static Future<bool> isUsernameTaken(String username) async {
     try {
       final result = await _supabase
@@ -75,6 +77,28 @@ class SyncService {
     } catch (e) {
       debugPrint('Username check failed: $e');
       return false; // assume available on error
+    }
+  }
+
+  /// Permanently deletes a profile from Supabase.
+  ///
+  /// This cascade-deletes all related data (duels, word_mastery, hall_of_fame)
+  /// via foreign key constraints. Also clears all local Hive data.
+  static Future<bool> deleteProfile(String userId) async {
+    try {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity.contains(ConnectivityResult.none)) return false;
+
+      await _supabase.from('profiles').delete().eq('id', userId);
+
+      // Clear all local data
+      final box = Hive.box('userProfile');
+      await box.clear();
+
+      return true;
+    } catch (e) {
+      debugPrint('Delete profile failed: $e');
+      return false;
     }
   }
 }

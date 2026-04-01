@@ -53,7 +53,8 @@ class VocabGameApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
-        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+        appBarTheme: const AppBarTheme(
+            centerTitle: true, elevation: 0, scrolledUnderElevation: 0),
         cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
@@ -68,7 +69,8 @@ class VocabGameApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+        appBarTheme: const AppBarTheme(
+            centerTitle: true, elevation: 0, scrolledUnderElevation: 0),
         cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(

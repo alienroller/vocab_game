@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
 import '../services/sync_service.dart';
@@ -19,16 +20,13 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     _loadProfile();
   }
 
-  Future<void> _loadProfile() async {
+  /// Builds a UserProfile from the current Hive box data.
+  UserProfile? _buildProfileFromHive() {
     final box = Hive.box('userProfile');
     final id = box.get('id') as String?;
-    if (id == null) {
-      // No profile yet — user needs to complete onboarding
-      state = null;
-      return;
-    }
+    if (id == null) return null;
 
-    final profile = UserProfile()
+    return UserProfile()
       ..id = id
       ..username = box.get('username', defaultValue: '') as String
       ..xp = box.get('xp', defaultValue: 0) as int
@@ -40,9 +38,19 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..totalWordsAnswered =
           box.get('totalWordsAnswered', defaultValue: 0) as int
       ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int
-      ..hasOnboarded = box.get('hasOnboarded', defaultValue: false) as bool;
+      ..hasOnboarded = box.get('hasOnboarded', defaultValue: false) as bool
+      ..isTeacher = box.get('isTeacher', defaultValue: false) as bool;
+  }
 
-    state = profile;
+  Future<void> _loadProfile() async {
+    state = _buildProfileFromHive();
+  }
+
+  /// Force-reloads the profile from Hive into the provider state.
+  /// Call this after external code writes directly to Hive (e.g. Library quiz,
+  /// account recovery).
+  Future<void> reload() async {
+    state = _buildProfileFromHive();
   }
 
   /// Creates a new profile during onboarding.
@@ -60,6 +68,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('totalWordsAnswered', 0);
     await box.put('totalCorrect', 0);
     await box.put('hasOnboarded', true);
+    await box.put('isTeacher', false);
 
     state = UserProfile()
       ..id = id
@@ -70,7 +79,25 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..weekXp = 0
       ..totalWordsAnswered = 0
       ..totalCorrect = 0
-      ..hasOnboarded = true;
+      ..hasOnboarded = true
+      ..isTeacher = false;
+  }
+
+  /// Creates a clone of the current profile with all fields copied.
+  UserProfile _cloneProfile(UserProfile profile) {
+    return UserProfile()
+      ..id = profile.id
+      ..username = profile.username
+      ..xp = profile.xp
+      ..level = profile.level
+      ..streakDays = profile.streakDays
+      ..lastPlayedDate = profile.lastPlayedDate
+      ..classCode = profile.classCode
+      ..weekXp = profile.weekXp
+      ..totalWordsAnswered = profile.totalWordsAnswered
+      ..totalCorrect = profile.totalCorrect
+      ..hasOnboarded = profile.hasOnboarded
+      ..isTeacher = profile.isTeacher;
   }
 
   /// Adds XP to the profile and updates the level.
@@ -82,18 +109,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     profile.level = XpService.levelFromXp(profile.xp);
 
     await _saveToHive(profile);
-    state = UserProfile()
-      ..id = profile.id
-      ..username = profile.username
-      ..xp = profile.xp
-      ..level = profile.level
-      ..streakDays = profile.streakDays
-      ..lastPlayedDate = profile.lastPlayedDate
-      ..classCode = profile.classCode
-      ..weekXp = profile.weekXp
-      ..totalWordsAnswered = profile.totalWordsAnswered
-      ..totalCorrect = profile.totalCorrect
-      ..hasOnboarded = profile.hasOnboarded;
+    state = _cloneProfile(profile);
   }
 
   /// Records a question answer (updates stats).
@@ -104,19 +120,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     if (correct) profile.totalCorrect += 1;
 
     await _saveToHive(profile);
-    // Trigger rebuild with a new UserProfile instance
-    state = UserProfile()
-      ..id = profile.id
-      ..username = profile.username
-      ..xp = profile.xp
-      ..level = profile.level
-      ..streakDays = profile.streakDays
-      ..lastPlayedDate = profile.lastPlayedDate
-      ..classCode = profile.classCode
-      ..weekXp = profile.weekXp
-      ..totalWordsAnswered = profile.totalWordsAnswered
-      ..totalCorrect = profile.totalCorrect
-      ..hasOnboarded = profile.hasOnboarded;
+    state = _cloneProfile(profile);
   }
 
   /// Updates the streak after a game session.
@@ -127,39 +131,62 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     profile.lastPlayedDate = lastPlayedDate;
 
     await _saveToHive(profile);
-    state = UserProfile()
-      ..id = profile.id
-      ..username = profile.username
-      ..xp = profile.xp
-      ..level = profile.level
-      ..streakDays = profile.streakDays
-      ..lastPlayedDate = profile.lastPlayedDate
-      ..classCode = profile.classCode
-      ..weekXp = profile.weekXp
-      ..totalWordsAnswered = profile.totalWordsAnswered
-      ..totalCorrect = profile.totalCorrect
-      ..hasOnboarded = profile.hasOnboarded;
+    state = _cloneProfile(profile);
   }
 
   /// Sets the class code for this profile.
-  Future<void> setClassCode(String code) async {
+  Future<void> setClassCode(String? code) async {
     if (state == null) return;
     final profile = state!;
     profile.classCode = code;
 
     await _saveToHive(profile);
-    state = UserProfile()
-      ..id = profile.id
-      ..username = profile.username
-      ..xp = profile.xp
-      ..level = profile.level
-      ..streakDays = profile.streakDays
-      ..lastPlayedDate = profile.lastPlayedDate
-      ..classCode = profile.classCode
-      ..weekXp = profile.weekXp
-      ..totalWordsAnswered = profile.totalWordsAnswered
-      ..totalCorrect = profile.totalCorrect
-      ..hasOnboarded = profile.hasOnboarded;
+    state = _cloneProfile(profile);
+  }
+
+  /// Updates the username.
+  Future<void> updateUsername(String newUsername) async {
+    if (state == null) return;
+    final profile = state!;
+
+    // Update in Supabase first
+    try {
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'username': newUsername}).eq('id', profile.id);
+    } catch (_) {
+      rethrow;
+    }
+
+    profile.username = newUsername;
+    await _saveToHive(profile);
+    state = _cloneProfile(profile);
+  }
+
+  /// Marks the user as a teacher.
+  Future<void> setTeacher(bool isTeacher) async {
+    if (state == null) return;
+    final profile = state!;
+
+    try {
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'is_teacher': isTeacher}).eq('id', profile.id);
+    } catch (_) {
+      // Silently fail — local state still updates
+    }
+
+    profile.isTeacher = isTeacher;
+    await _saveToHive(profile);
+    state = _cloneProfile(profile);
+  }
+
+  /// Logs out the user — clears all local data without deleting the
+  /// Supabase profile.
+  Future<void> logout() async {
+    final box = Hive.box('userProfile');
+    await box.clear();
+    state = null;
   }
 
   /// Syncs the current profile to Supabase.
@@ -181,5 +208,6 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('totalWordsAnswered', profile.totalWordsAnswered);
     await box.put('totalCorrect', profile.totalCorrect);
     await box.put('hasOnboarded', profile.hasOnboarded);
+    await box.put('isTeacher', profile.isTeacher);
   }
 }

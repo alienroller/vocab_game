@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/user_profile.dart';
 import '../../models/vocab.dart';
+import '../../providers/profile_provider.dart';
 import '../../services/sync_service.dart';
 import '../../services/word_session_service.dart';
 import '../../services/xp_service.dart';
@@ -562,7 +563,7 @@ class _UnitGameSelectionScreen extends StatelessWidget {
 
 /// Quiz game that uses Supabase-loaded words with XP, mastery tracking,
 /// and speed bonuses.
-class UnitQuizGame extends StatefulWidget {
+class UnitQuizGame extends ConsumerStatefulWidget {
   final String unitId;
   final String unitTitle;
   final List<Vocab> words;
@@ -575,10 +576,10 @@ class UnitQuizGame extends StatefulWidget {
   });
 
   @override
-  State<UnitQuizGame> createState() => _UnitQuizGameState();
+  ConsumerState<UnitQuizGame> createState() => _UnitQuizGameState();
 }
 
-class _UnitQuizGameState extends State<UnitQuizGame> {
+class _UnitQuizGameState extends ConsumerState<UnitQuizGame> {
   late List<Vocab> _quizWords;
   int _currentIndex = 0;
   int _score = 0;
@@ -684,8 +685,12 @@ class _UnitQuizGameState extends State<UnitQuizGame> {
       ..classCode = box.get('classCode') as String?
       ..weekXp = box.get('weekXp', defaultValue: 0) as int
       ..totalWordsAnswered = box.get('totalWordsAnswered', defaultValue: 0) as int
-      ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int;
+      ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int
+      ..isTeacher = box.get('isTeacher', defaultValue: false) as bool;
     SyncService.syncProfile(profile);
+
+    // Reload the profile provider so Profile screen reflects new XP
+    await ref.read(profileProvider.notifier).reload();
 
     if (!mounted) return;
 

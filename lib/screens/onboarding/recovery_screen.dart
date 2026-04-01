@@ -2,21 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/profile_provider.dart';
 import '../../services/account_recovery_service.dart';
 import '../home_screen.dart';
 
 /// Account recovery screen — enter username + 6-digit PIN to restore account.
 ///
 /// Rate limited: 3 wrong attempts → 60 second cooldown.
-class RecoveryScreen extends StatefulWidget {
+class RecoveryScreen extends ConsumerStatefulWidget {
   const RecoveryScreen({super.key});
 
   @override
-  State<RecoveryScreen> createState() => _RecoveryScreenState();
+  ConsumerState<RecoveryScreen> createState() => _RecoveryScreenState();
 }
 
-class _RecoveryScreenState extends State<RecoveryScreen> {
+class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   final _usernameController = TextEditingController();
   final _pinController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -78,6 +80,11 @@ class _RecoveryScreenState extends State<RecoveryScreen> {
     if (!mounted) return;
 
     if (result != null) {
+      // Reload the profile provider so the app state reflects the recovered data
+      await ref.read(profileProvider.notifier).reload();
+
+      if (!mounted) return;
+
       // Success — go to home
       Navigator.pushAndRemoveUntil(
         context,

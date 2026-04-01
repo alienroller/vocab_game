@@ -131,12 +131,19 @@ class WelcomeScreen extends StatelessWidget {
                             builder: (_) => const RecoveryScreen()),
                       );
                     },
-                    icon: const Icon(Icons.restore, size: 20),
-                    label: const Text('I Have an Account'),
+                    icon: Icon(Icons.restore,
+                        size: 20,
+                        color: theme.colorScheme.primary),
+                    label: Text('I Have an Account',
+                        style: TextStyle(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        )),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white.withValues(alpha: 0.85),
                       side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.5)),
+                          color: Colors.white.withValues(alpha: 0.9),
+                          width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
