@@ -66,6 +66,32 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     final profileBox = Hive.box('userProfile');
     _classCode = profileBox.get('classCode') as String?;
     _myUsername = profileBox.get('username') as String?;
+
+    // 1. Load cached data instantly (no loading spinner)
+    _loadCachedLeaderboard();
+
+    // 2. Refresh from Supabase in background
+    await _refreshFromSupabase();
+  }
+
+  /// Loads cached leaderboard from Hive for instant display.
+  void _loadCachedLeaderboard() {
+    final box = Hive.box('userProfile');
+    final cached = box.get('leaderboard_cache') as Map?;
+    if (cached == null) return;
+
+    if (mounted) {
+      setState(() {
+        _classBoard = _castList(cached['class']);
+        _globalBoard = _castList(cached['global']);
+        _weekBoard = _castList(cached['week']);
+        _loading = false; // Show cached data immediately
+      });
+    }
+  }
+
+  /// Fetches fresh data from Supabase and caches it.
+  Future<void> _refreshFromSupabase() async {
     final supabase = Supabase.instance.client;
 
     try {
@@ -87,7 +113,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
             .limit(50);
       }
 
-      // Weekly board: load class-scoped if class exists, otherwise global
+      // Weekly board: class-scoped if class exists, otherwise global
       List<dynamic> weekFuture;
       if (_classCode != null && _classCode!.isNotEmpty) {
         weekFuture = await supabase
@@ -106,19 +132,39 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
 
       final globalResult = await globalFuture;
 
+      final classData = List<Map<String, dynamic>>.from(classFuture);
+      final globalData = List<Map<String, dynamic>>.from(globalResult);
+      final weekData = List<Map<String, dynamic>>.from(weekFuture);
+
+      // Cache for offline use
+      final box = Hive.box('userProfile');
+      await box.put('leaderboard_cache', {
+        'class': classData,
+        'global': globalData,
+        'week': weekData,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
       if (mounted) {
         setState(() {
-          _classBoard = List<Map<String, dynamic>>.from(classFuture);
-          _globalBoard = List<Map<String, dynamic>>.from(globalResult);
-          _weekBoard = List<Map<String, dynamic>>.from(weekFuture);
+          _classBoard = classData;
+          _globalBoard = globalData;
+          _weekBoard = weekData;
           _loading = false;
         });
       }
     } catch (e) {
+      // Network error — cached data (if any) is already shown
       if (mounted) {
         setState(() => _loading = false);
       }
     }
+  }
+
+  /// Safely casts a dynamic list from Hive cache to typed list.
+  static List<Map<String, dynamic>> _castList(dynamic data) {
+    if (data == null) return [];
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   void _subscribeToRealtime() {

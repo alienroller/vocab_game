@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide StorageException;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:vocab_game/config/environment_constants.dart';
 
@@ -13,6 +12,7 @@ import 'screens/onboarding/welcome_screen.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'services/streak_service.dart';
+import 'services/sync_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,8 +20,11 @@ void main() async {
   // Initialize Hive (existing)
   await StorageService.init();
 
-  // Open the user profile box (new — for competitive features)
+  // Open the user profile box (for competitive features)
   await Hive.openBox('userProfile');
+
+  // Open offline sync queue box
+  await Hive.openBox('sync_queue');
 
   // Initialize Supabase
   await Supabase.initialize(
@@ -31,6 +34,9 @@ void main() async {
 
   // Initialize local notifications (streak warnings, duel alerts)
   await NotificationService.initialize();
+
+  // Drain any pending offline syncs
+  await SyncService.drainSyncQueue();
 
   runApp(const ProviderScope(child: VocabGameApp()));
 }
@@ -119,7 +125,9 @@ class _AppRouterState extends State<_AppRouter> {
           ..totalWordsAnswered =
               profileBox.get('totalWordsAnswered', defaultValue: 0) as int
           ..totalCorrect =
-              profileBox.get('totalCorrect', defaultValue: 0) as int;
+              profileBox.get('totalCorrect', defaultValue: 0) as int
+          ..isTeacher =
+              profileBox.get('isTeacher', defaultValue: false) as bool;
 
     // Check if streak was broken while app was closed
     StreakService.checkStreakOnAppOpen(profile);

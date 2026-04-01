@@ -5,10 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../models/user_profile.dart';
 import '../../models/vocab.dart';
 import '../../providers/profile_provider.dart';
-import '../../services/sync_service.dart';
 import '../../services/word_session_service.dart';
 import '../../services/xp_service.dart';
 
@@ -658,39 +656,13 @@ class _UnitQuizGameState extends ConsumerState<UnitQuizGame> {
   }
 
   Future<void> _finishGame() async {
-    // Award XP locally
-    final box = Hive.box('userProfile');
-    final currentXp = box.get('xp', defaultValue: 0) as int;
-    final newXp = currentXp + _totalXp;
-    await box.put('xp', newXp);
-    await box.put('level', XpService.levelFromXp(newXp));
-    final currentWeekXp = box.get('weekXp', defaultValue: 0) as int;
-    await box.put('weekXp', currentWeekXp + _totalXp);
-
-    // Update stats
-    final answered =
-        box.get('totalWordsAnswered', defaultValue: 0) as int;
-    await box.put('totalWordsAnswered', answered + _quizWords.length);
-    final correct = box.get('totalCorrect', defaultValue: 0) as int;
-    await box.put('totalCorrect', correct + _score);
-
-    // Sync to Supabase
-    final profile = UserProfile()
-      ..id = box.get('id', defaultValue: '') as String
-      ..username = box.get('username', defaultValue: '') as String
-      ..xp = newXp
-      ..level = XpService.levelFromXp(newXp)
-      ..streakDays = box.get('streakDays', defaultValue: 0) as int
-      ..lastPlayedDate = box.get('lastPlayedDate') as String?
-      ..classCode = box.get('classCode') as String?
-      ..weekXp = box.get('weekXp', defaultValue: 0) as int
-      ..totalWordsAnswered = box.get('totalWordsAnswered', defaultValue: 0) as int
-      ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int
-      ..isTeacher = box.get('isTeacher', defaultValue: false) as bool;
-    SyncService.syncProfile(profile);
-
-    // Reload the profile provider so Profile screen reflects new XP
-    await ref.read(profileProvider.notifier).reload();
+    // Use ProfileProvider as the single source of truth —
+    // handles XP, accuracy stats, Hive persistence, and Supabase sync.
+    await ref.read(profileProvider.notifier).recordGameSession(
+      xpGained: _totalXp,
+      totalQuestions: _quizWords.length,
+      correctAnswers: _score,
+    );
 
     if (!mounted) return;
 

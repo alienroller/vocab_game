@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../providers/profile_provider.dart';
 import '../services/notification_service.dart';
@@ -44,19 +46,15 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
 
     final notifier = ref.read(profileProvider.notifier);
 
-    // Award XP if any was earned
-    if (widget.xpGained > 0) {
-      await notifier.addXp(widget.xpGained);
-    }
-
-    // Record answers for accuracy stats
-    await notifier.recordAnswer(correct: widget.score > 0);
+    // Single atomic call: adds XP + records per-word accuracy + syncs
+    await notifier.recordGameSession(
+      xpGained: widget.xpGained,
+      totalQuestions: widget.total,
+      correctAnswers: widget.score,
+    );
 
     // Cancel streak warning — they played today
     await NotificationService.cancelStreakWarning();
-
-    // Sync to cloud
-    await notifier.sync();
   }
 
   @override
@@ -142,6 +140,25 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                 ),
               ],
               const SizedBox(height: 48),
+              // ─── Share Score (viral loop) ───────────────────
+              if (widget.xpGained > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: OutlinedButton.icon(
+                    onPressed: _shareScore,
+                    icon: const Icon(Icons.share),
+                    label: const Text('Share Score'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 52),
+                      side: BorderSide(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
               CustomButton(
                 text: 'Play Again',
                 icon: Icons.replay,
@@ -151,7 +168,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                   widget.onPlayAgain();
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
@@ -171,5 +188,16 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
         ),
       ),
     );
+  }
+
+  void _shareScore() {
+    final streakDays =
+        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+    final streakText = streakDays > 1 ? ' | 🔥 $streakDays-day streak!' : '';
+    final text =
+        '⚡ I just scored ${widget.score}/${widget.total} and earned '
+        '+${widget.xpGained} XP on VocabGame!$streakText\n'
+        'Try to beat me! 📚';
+    Share.share(text);
   }
 }

@@ -112,15 +112,47 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     state = _cloneProfile(profile);
   }
 
-  /// Records a question answer (updates stats).
-  Future<void> recordAnswer({required bool correct}) async {
+  /// Records answers for a game session (batch update).
+  /// [totalQuestions] — total words answered in the session.
+  /// [correctAnswers] — number of correct answers.
+  Future<void> recordAnswers({
+    required int totalQuestions,
+    required int correctAnswers,
+  }) async {
     if (state == null) return;
     final profile = state!;
-    profile.totalWordsAnswered += 1;
-    if (correct) profile.totalCorrect += 1;
+    profile.totalWordsAnswered += totalQuestions;
+    profile.totalCorrect += correctAnswers;
 
     await _saveToHive(profile);
     state = _cloneProfile(profile);
+  }
+
+  /// All-in-one post-game session handler.
+  /// Adds XP, records per-word accuracy, and syncs to Supabase.
+  /// This is the ONLY method games should call after finishing.
+  Future<void> recordGameSession({
+    required int xpGained,
+    required int totalQuestions,
+    required int correctAnswers,
+  }) async {
+    if (state == null) return;
+    final profile = state!;
+
+    // Update XP
+    profile.xp += xpGained;
+    profile.weekXp += xpGained;
+    profile.level = XpService.levelFromXp(profile.xp);
+
+    // Update accuracy stats (per-word, not per-session)
+    profile.totalWordsAnswered += totalQuestions;
+    profile.totalCorrect += correctAnswers;
+
+    await _saveToHive(profile);
+    state = _cloneProfile(profile);
+
+    // Sync to cloud
+    await SyncService.syncProfile(state!);
   }
 
   /// Updates the streak after a game session.

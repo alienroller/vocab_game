@@ -11,6 +11,7 @@ import '../services/xp_service.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
 import 'onboarding/welcome_screen.dart';
+import 'teacher_dashboard_screen.dart';
 
 /// User profile screen showing stats, XP details, streak, class info,
 /// and account management (edit, join/create class, logout, delete).
@@ -37,6 +38,8 @@ class ProfileScreen extends ConsumerWidget {
         profileBox.get('totalCorrect', defaultValue: 0) as int;
     final accuracy =
         totalAnswered > 0 ? (totalCorrect / totalAnswered * 100).round() : 0;
+    final isTeacher = profile?.isTeacher ??
+        profileBox.get('isTeacher', defaultValue: false) as bool;
 
     return Scaffold(
       appBar: AppBar(
@@ -198,6 +201,21 @@ class ProfileScreen extends ConsumerWidget {
               subtitle: 'For teachers — get a code for your students',
               onTap: () => _showCreateClassDialog(context, ref, username),
             ),
+            // Teacher Dashboard link (only visible for teachers with a class)
+            if (isTeacher && classCode != null && classCode.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _ActionTile(
+                icon: Icons.dashboard,
+                label: 'View Dashboard',
+                subtitle: 'See student progress and stats',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TeacherDashboardScreen(classCode: classCode),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
 
             // ─── Account Management ─────────────────────────────

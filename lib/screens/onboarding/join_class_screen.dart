@@ -8,7 +8,8 @@ import 'pin_setup_screen.dart';
 /// Optional class join screen during onboarding.
 ///
 /// Student enters a 6-character code from their teacher.
-/// Can be skipped — goes directly to the home screen.
+/// Can be skipped — goes directly to the PIN setup screen.
+/// After joining, shows a competitive rank reveal dialog.
 class JoinClassScreen extends ConsumerStatefulWidget {
   const JoinClassScreen({super.key});
 
@@ -71,8 +72,10 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
         _className = classData['class_name'] as String;
       });
 
-      // Short delay to show success, then navigate
-      await Future.delayed(const Duration(milliseconds: 1500));
+      // Show rank reveal before navigating
+      if (mounted && profile != null) {
+        await _showRankReveal(code, profile.username);
+      }
 
       if (mounted) {
         Navigator.pushReplacement(
@@ -87,6 +90,50 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
           _submitting = false;
         });
       }
+    }
+  }
+
+  /// Fetches the class leaderboard, finds the user's rank, and shows
+  /// a competitive rank reveal dialog.
+  Future<void> _showRankReveal(String classCode, String myUsername) async {
+    try {
+      final classmates = await Supabase.instance.client
+          .from('profiles')
+          .select('username, xp')
+          .eq('class_code', classCode)
+          .order('xp', ascending: false)
+          .limit(50);
+
+      final board = List<Map<String, dynamic>>.from(classmates);
+      if (board.isEmpty) return;
+
+      // Find my rank (1-indexed)
+      int myRank = board.length;
+      String? rivalName;
+      for (int i = 0; i < board.length; i++) {
+        if (board[i]['username'] == myUsername) {
+          myRank = i + 1;
+          if (i > 0) {
+            rivalName = board[i - 1]['username'] as String?;
+          }
+          break;
+        }
+      }
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => _RankRevealDialog(
+          rank: myRank,
+          totalClassmates: board.length,
+          rivalName: rivalName,
+          className: _className ?? 'your class',
+        ),
+      );
+    } catch (_) {
+      // Silently skip rank reveal on error — not critical
     }
   }
 
@@ -229,6 +276,159 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
               const SizedBox(height: 48),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Rank Reveal Dialog ──────────────────────────────────────────────
+
+/// Animated dialog shown after joining a class during onboarding.
+/// Displays the user's rank and the name of the classmate just ahead.
+class _RankRevealDialog extends StatefulWidget {
+  final int rank;
+  final int totalClassmates;
+  final String? rivalName;
+  final String className;
+
+  const _RankRevealDialog({
+    required this.rank,
+    required this.totalClassmates,
+    required this.rivalName,
+    required this.className,
+  });
+
+  @override
+  State<_RankRevealDialog> createState() => _RankRevealDialogState();
+}
+
+class _RankRevealDialogState extends State<_RankRevealDialog>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnim;
+  late Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _scaleAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
+    );
+    _fadeAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isFirst = widget.rank == 1;
+
+    final rankEmoji = switch (widget.rank) {
+      1 => '🥇',
+      2 => '🥈',
+      3 => '🥉',
+      _ => '🏅',
+    };
+
+    String rivalLine = '';
+    if (widget.rivalName != null && !isFirst) {
+      rivalLine =
+          '${widget.rivalName} is just ahead at #${widget.rank - 1}.\nCan you beat them? 💪';
+    } else if (isFirst) {
+      rivalLine = 'You\'re already at the top!\nKeep it up! 🔥';
+    } else {
+      rivalLine = 'Start playing to climb the ranks! 🚀';
+    }
+
+    return FadeTransition(
+      opacity: _fadeAnim,
+      child: ScaleTransition(
+        scale: _scaleAnim,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(rankEmoji, style: const TextStyle(fontSize: 56)),
+              const SizedBox(height: 16),
+              Text(
+                'You\'re #${widget.rank}',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'in ${widget.className}',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${widget.totalClassmates} classmates',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer
+                      .withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  rivalLine,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('Let\'s Go! 🚀',
+                    style: TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
         ),
       ),
     );
