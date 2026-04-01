@@ -37,6 +37,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _fetchRival();
+    _checkStreakMilestone();
+  }
+
+  /// Shows a celebration dialog when the user hits a streak milestone.
+  /// Only shows once per milestone (tracked via Hive flag).
+  void _checkStreakMilestone() {
+    final profileBox = Hive.box('userProfile');
+    final streakDays = profileBox.get('streakDays', defaultValue: 0) as int;
+    final lastMilestone = profileBox.get('lastStreakMilestone', defaultValue: 0) as int;
+
+    // Check milestones in descending order — show only the highest unshown
+    const milestones = [30, 14, 7, 3];
+    for (final milestone in milestones) {
+      if (streakDays >= milestone && lastMilestone < milestone) {
+        profileBox.put('lastStreakMilestone', milestone);
+        // Show after the frame is built
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => _StreakMilestoneDialog(milestone: milestone),
+            );
+          }
+        });
+        break;
+      }
+    }
   }
 
   /// Finds the player directly above you on the class leaderboard
@@ -534,6 +562,129 @@ class _QuickAction extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Streak Milestone Celebration Dialog ──────────────────────────────
+
+class _StreakMilestoneDialog extends StatefulWidget {
+  final int milestone;
+  const _StreakMilestoneDialog({required this.milestone});
+
+  @override
+  State<_StreakMilestoneDialog> createState() => _StreakMilestoneDialogState();
+}
+
+class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnim;
+  late Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _scaleAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
+    );
+    _fadeAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (emoji, title, message) = switch (widget.milestone) {
+      3 => ('🔥', 'You\'re on a roll!', '3-day streak! Keep it up!'),
+      7 => ('💪', 'One week strong!', 'You\'re a habit now. Incredible!'),
+      14 => ('🏆', 'Two weeks!', 'You\'re in the top players. Amazing!'),
+      30 => ('👑', 'One month!', 'You are LEGENDARY. Unstoppable!'),
+      _ => ('🔥', 'Streak milestone!', '${widget.milestone}-day streak!'),
+    };
+
+    return FadeTransition(
+      opacity: _fadeAnim,
+      child: ScaleTransition(
+        scale: _scaleAnim,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 64)),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '🔥 ${widget.milestone}-day streak',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('Keep Going! 💪',
+                    style: TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
         ),
       ),
     );

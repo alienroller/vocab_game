@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../widgets/leaderboard_row_widget.dart';
 import 'duel/duel_lobby_screen.dart';
 
 /// Leaderboard screen with three tabs: My Class, Global, This Week.
@@ -284,75 +285,23 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
         itemCount: entries.length,
         itemBuilder: (context, index) {
           final entry = entries[index];
-          final String medal = switch (index) {
-            0 => '🥇',
-            1 => '🥈',
-            2 => '🥉',
-            _ => '${index + 1}',
-          };
           final isMe = entry['username'] == _myUsername;
 
-          return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              color: isMe
-                  ? Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withValues(alpha: 0.4)
-                  : null,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ListTile(
-              leading: SizedBox(
-                width: 36,
-                child: Center(
-                  child: Text(
-                    medal,
-                    style: TextStyle(
-                      fontSize: index < 3 ? 24 : 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+          return LeaderboardRowWidget(
+            rank: index + 1,
+            username: entry['username'] ?? '???',
+            level: entry['level'] as int? ?? 1,
+            score: entry[scoreKey] as int? ?? 0,
+            isCurrentUser: isMe,
+            showChallengeButton: showChallenge && !isMe,
+            onChallenge: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const DuelLobbyScreen(),
                 ),
-              ),
-              title: Text(
-                entry['username'] ?? '???',
-                style: TextStyle(
-                  fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-              subtitle: Text('Level ${entry['level'] ?? 1}'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (showChallenge && !isMe)
-                    IconButton(
-                      icon: Icon(Icons.sports_kabaddi,
-                          color: Colors.red.shade400, size: 20),
-                      tooltip: 'Challenge to duel',
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const DuelLobbyScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  Text(
-                    '${entry[scoreKey] ?? 0} XP',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: isMe
-                          ? Theme.of(context).colorScheme.primary
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+              );
+            },
           );
         },
       ),
