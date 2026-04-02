@@ -543,10 +543,19 @@ class AppTheme {
             const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: _lightCard,
-        side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
+        backgroundColor: Colors.white,
+        selectedColor: const Color(0xFFEDE7F6),
+        side: BorderSide(color: const Color(0xFFD8DAE5)),
         shape: RoundedRectangleBorder(borderRadius: borderRadiusSm),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+        labelStyle: const TextStyle(
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF1A1D3A),
+        ),
+        secondaryLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF5C2FE0),
+        ),
+        checkmarkColor: violet,
       ),
     );
   }
