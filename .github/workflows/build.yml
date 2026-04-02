@@ -52,6 +52,11 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
 
+      - name: Flutter Build Runner
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          echo "Flutter Build Running finished"
+
       - name: Build Android APK
         run: |
           flutter build apk --release --split-per-abi \
