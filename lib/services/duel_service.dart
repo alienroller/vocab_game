@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Manages 1v1 live duel lifecycle.
@@ -175,7 +176,10 @@ class DuelService {
     }
   }
 
-  /// Selects random words for a duel from a unit or collection.
+  /// Selects random words for a duel from a unit, collection, or local Hive vocab.
+  ///
+  /// Falls back to the player's local vocabulary if the Supabase `words`
+  /// table is empty (common before content seeding).
   static Future<List<Map<String, dynamic>>> selectDuelWords({
     String? unitId,
     String? collectionId,
@@ -202,10 +206,44 @@ class DuelService {
       }
 
       final wordList = List<Map<String, dynamic>>.from(words);
+
+      // Fallback: if Supabase has no words, use local Hive vocabulary
+      if (wordList.isEmpty) {
+        return _getLocalWords(count);
+      }
+
       wordList.shuffle(Random.secure());
       return wordList.take(count).toList();
     } catch (e) {
       debugPrint('Select duel words failed: $e');
+      // Fallback to local on network error too
+      return _getLocalWords(count);
+    }
+  }
+
+  /// Gets words from the local Hive vocabulary box.
+  static List<Map<String, dynamic>> _getLocalWords(int count) {
+    try {
+      final vocabBox = Hive.box('vocab');
+      final allVocab = vocabBox.values.toList();
+      if (allVocab.isEmpty) return [];
+
+      final words = allVocab.map((v) {
+        final map = Map<String, dynamic>.from(v as Map);
+        return {
+          'id': map['id'] ?? '',
+          'word': map['english'] ?? map['word'] ?? '',
+          'translation': map['uzbek'] ?? map['translation'] ?? '',
+        };
+      }).where((w) =>
+          (w['word'] as String).isNotEmpty &&
+          (w['translation'] as String).isNotEmpty
+      ).toList();
+
+      words.shuffle(Random.secure());
+      return words.take(count).toList();
+    } catch (e) {
+      debugPrint('Local word fallback failed: $e');
       return [];
     }
   }
