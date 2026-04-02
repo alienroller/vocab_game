@@ -2,16 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../providers/profile_provider.dart';
 import '../services/class_service.dart';
 import '../services/sync_service.dart';
 import '../services/xp_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
-import 'onboarding/welcome_screen.dart';
-import 'teacher_dashboard_screen.dart';
 
 /// User profile screen showing stats, XP details, streak, class info,
 /// and account management (edit, join/create class, logout, delete).
@@ -41,25 +41,38 @@ class ProfileScreen extends ConsumerWidget {
     final isTeacher = profile?.isTeacher ??
         profileBox.get('isTeacher', defaultValue: false) as bool;
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Profile',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.w800)),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(24, kToolbarHeight + MediaQuery.of(context).padding.top + 16, 24, 24),
         child: Column(
           children: [
             // ─── Avatar & Username ──────────────────────────────
-            CircleAvatar(
-              radius: 48,
-              backgroundColor: theme.colorScheme.primaryContainer,
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: AppTheme.primaryGradient,
+                boxShadow: AppTheme.shadowGlow(AppTheme.violet),
+              ),
+              alignment: Alignment.center,
               child: Text(
                 username.isNotEmpty ? username[0].toUpperCase() : '?',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -71,15 +84,15 @@ class ProfileScreen extends ConsumerWidget {
                   child: Text(
                     username,
                     style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w800,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  icon: Icon(Icons.edit, size: 20,
-                      color: theme.colorScheme.primary),
+                  icon: Icon(Icons.edit_rounded, size: 20,
+                      color: AppTheme.violet),
                   tooltip: 'Edit username',
                   onPressed: () => _showEditUsernameDialog(context, ref, username),
                 ),
@@ -91,14 +104,14 @@ class ProfileScreen extends ConsumerWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer,
+                  color: AppTheme.violet.withValues(alpha: isDark ? 0.12 : 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   'Class: $classCode',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSecondaryContainer,
-                    fontWeight: FontWeight.w500,
+                  style: const TextStyle(
+                    color: AppTheme.violet,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -155,11 +168,7 @@ class ProfileScreen extends ConsumerWidget {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest
-                    .withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(16),
-              ),
+              decoration: AppTheme.glassCard(isDark: isDark),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -208,12 +217,7 @@ class ProfileScreen extends ConsumerWidget {
                 icon: Icons.dashboard,
                 label: 'View Dashboard',
                 subtitle: 'See student progress and stats',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TeacherDashboardScreen(classCode: classCode),
-                  ),
-                ),
+                onTap: () => context.push('/teacher-dashboard', extra: classCode),
               ),
             ],
             const SizedBox(height: 32),
@@ -237,6 +241,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 48),
           ],
+        ),
         ),
       ),
     );
@@ -527,11 +532,7 @@ class ProfileScreen extends ConsumerWidget {
             onPressed: () async {
               await ref.read(profileProvider.notifier).logout();
               if (context.mounted) {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-                  (route) => false,
-                );
+                context.go('/welcome');
               }
             },
             style: FilledButton.styleFrom(
@@ -619,12 +620,7 @@ class ProfileScreen extends ConsumerWidget {
                           if (success) {
                             await ref.read(profileProvider.notifier).logout();
                             if (context.mounted) {
-                              Navigator.pushAndRemoveUntil(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => const WelcomeScreen()),
-                                (route) => false,
-                              );
+                              context.go('/welcome');
                             }
                           } else {
                             setDialogState(() => deleting = false);

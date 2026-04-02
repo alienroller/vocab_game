@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../theme/app_theme.dart';
 import 'game_streak_mixin.dart';
 
 class FlashcardGame extends ConsumerStatefulWidget {
@@ -63,34 +64,51 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
     if (_shuffledVocab.isEmpty) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final currentWord = _shuffledVocab[_currentIndex];
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Flashcards'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4.0),
-          child: LinearProgressIndicator(
-            value: (_currentIndex + 1) / _shuffledVocab.length,
-          ),
-        ),
       ),
-      body: Column(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Card ${_currentIndex + 1} of ${_shuffledVocab.length}',
-              style: theme.textTheme.titleMedium,
-            ),
+          SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight + 8),
+          // Progress dots
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(_shuffledVocab.length, (i) {
+              return Container(
+                width: i == _currentIndex ? 24 : 8,
+                height: 8,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  gradient: i == _currentIndex ? AppTheme.primaryGradient : null,
+                  color: i == _currentIndex
+                      ? null
+                      : (i < _currentIndex
+                          ? AppTheme.violet.withValues(alpha: 0.4)
+                          : (isDark
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.black.withValues(alpha: 0.08))),
+                ),
+              );
+            }),
           ),
+          const SizedBox(height: 8),
           Expanded(
             child: PageView.builder(
               controller: _pageController,
               onPageChanged: (index) {
                 setState(() {
                   _currentIndex = index;
-                  _showUzbek = false; // Reset flip state for new card
+                  _showUzbek = false;
                 });
               },
               itemCount: _shuffledVocab.length,
@@ -98,21 +116,28 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
                 return GestureDetector(
                   onTap: _flipCard,
                   child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+                    margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
                     decoration: BoxDecoration(
-                      color: _showUzbek ? theme.colorScheme.primaryContainer : theme.colorScheme.surface,
+                      gradient: _showUzbek
+                          ? const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFFFB74D), Color(0xFFE65100)],
+                            )
+                          : const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF4FC3F7), Color(0xFF0288D1)],
+                            ),
                       borderRadius: BorderRadius.circular(32),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
+                          color: (_showUzbek ? const Color(0xFFE65100) : const Color(0xFF0288D1))
+                              .withValues(alpha: 0.3),
+                          blurRadius: 24,
+                          offset: const Offset(0, 12),
                         ),
                       ],
-                      border: Border.all(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                        width: 2,
-                      ),
                     ),
                     alignment: Alignment.center,
                     child: AnimatedSwitcher(
@@ -143,11 +168,10 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              _showUzbek ? 'Uzbek' : 'English',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: _showUzbek 
-                                    ? theme.colorScheme.onPrimaryContainer
-                                    : theme.colorScheme.primary,
+                              _showUzbek ? '🇺🇿 Uzbek' : '🇬🇧 English',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white.withValues(alpha: 0.8),
                                 letterSpacing: 2,
                               ),
                             ),
@@ -155,22 +179,21 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
                             Text(
                               _showUzbek ? currentWord.uzbek : currentWord.english,
                               textAlign: TextAlign.center,
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: _showUzbek 
-                                    ? theme.colorScheme.onPrimaryContainer
-                                    : theme.colorScheme.onSurface,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 36,
+                                color: Colors.white,
                               ),
                             ),
                             const SizedBox(height: 32),
                             Icon(
                               Icons.touch_app,
-                              color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withValues(alpha: 0.5),
+                              color: Colors.white.withValues(alpha: 0.5),
                             ),
                             Text(
                               'Tap to flip',
                               style: TextStyle(
-                                color: (_showUzbek ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface).withValues(alpha: 0.5),
+                                color: Colors.white.withValues(alpha: 0.5),
                               ),
                             ),
                           ],
@@ -187,22 +210,35 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton.filledTonal(
-                  onPressed: _currentIndex > 0 ? _prevCard : null,
-                  icon: const Icon(Icons.arrow_back),
-                  iconSize: 32,
-                  padding: const EdgeInsets.all(16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: _currentIndex > 0 ? _prevCard : null,
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    iconSize: 28,
+                    padding: const EdgeInsets.all(14),
+                  ),
                 ),
-                IconButton.filledTonal(
-                  onPressed: _currentIndex < _shuffledVocab.length - 1 ? _nextCard : null,
-                  icon: const Icon(Icons.arrow_forward),
-                  iconSize: 32,
-                  padding: const EdgeInsets.all(16),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed: _currentIndex < _shuffledVocab.length - 1 ? _nextCard : null,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    iconSize: 28,
+                    padding: const EdgeInsets.all(14),
+                  ),
                 ),
               ],
             ),
           ),
         ],
+        ),
       ),
     );
   }

@@ -1,6 +1,16 @@
-class Vocab {
+import 'package:hive/hive.dart';
+
+part 'vocab.g.dart';
+
+@HiveType(typeId: 0)
+class Vocab extends HiveObject {
+  @HiveField(0)
   final String id;
+
+  @HiveField(1)
   final String english;
+
+  @HiveField(2)
   final String uzbek;
 
   Vocab({
@@ -9,6 +19,7 @@ class Vocab {
     required this.uzbek,
   });
 
+  /// Legacy support: create a Vocab from the old Map-based storage format.
   factory Vocab.fromMap(Map<dynamic, dynamic> map) {
     return Vocab(
       id: map['id'] as String,

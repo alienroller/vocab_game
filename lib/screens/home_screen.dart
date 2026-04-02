@@ -1,24 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/profile_provider.dart';
+import '../providers/vocab_provider.dart';
+import '../models/vocab.dart';
+import '../theme/app_theme.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
-import '../models/vocab.dart';
-import '../providers/vocab_provider.dart';
 import '../widgets/vocab_tile.dart';
-import 'game_selection_screen.dart';
-import 'leaderboard_screen.dart';
-import 'library/library_screen.dart';
-import 'hall_of_fame_screen.dart';
-import 'profile_screen.dart';
-import 'duel/duel_lobby_screen.dart';
 
-/// Home screen with XP bar, streak counter, vocabulary list, and navigation
-/// to the competitive features (Library, Leaderboard, Hall of Fame, Profile).
+/// Home screen with premium gradient design, hero header, vocabulary list,
+/// and floating add-word bottom sheet.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -27,9 +23,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final _englishController = TextEditingController();
-  final _uzbekController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
   String? _rivalName;
   int _rivalXpGap = 0;
 
@@ -40,19 +33,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _checkStreakMilestone();
   }
 
-  /// Shows a celebration dialog when the user hits a streak milestone.
-  /// Only shows once per milestone (tracked via Hive flag).
   void _checkStreakMilestone() {
     final profileBox = Hive.box('userProfile');
     final streakDays = profileBox.get('streakDays', defaultValue: 0) as int;
-    final lastMilestone = profileBox.get('lastStreakMilestone', defaultValue: 0) as int;
+    final lastMilestone =
+        profileBox.get('lastStreakMilestone', defaultValue: 0) as int;
 
-    // Check milestones in descending order — show only the highest unshown
     const milestones = [30, 14, 7, 3];
     for (final milestone in milestones) {
       if (streakDays >= milestone && lastMilestone < milestone) {
         profileBox.put('lastStreakMilestone', milestone);
-        // Show after the frame is built
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             showDialog(
@@ -67,7 +57,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  /// Finds the player directly above you on the class leaderboard
   void _fetchRival() async {
     final profileBox = Hive.box('userProfile');
     final classCode = profileBox.get('classCode') as String?;
@@ -98,23 +87,129 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {}
   }
 
-  @override
-  void dispose() {
-    _englishController.dispose();
-    _uzbekController.dispose();
-    super.dispose();
-  }
+  void _showAddWordSheet() {
+    final englishCtrl = TextEditingController();
+    final uzbekCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
 
-  void _addWord() {
-    if (_formKey.currentState!.validate()) {
-      ref.read(vocabProvider.notifier).addVocab(
-            _englishController.text,
-            _uzbekController.text,
-          );
-      _englishController.clear();
-      _uzbekController.clear();
-      FocusScope.of(context).unfocus();
-    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final isDark = theme.brightness == Brightness.dark;
+        return Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF1E2140)
+                  : Colors.white,
+              borderRadius: AppTheme.borderRadiusLg,
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
+              boxShadow: AppTheme.shadowMedium,
+            ),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: AppTheme.primaryGradient,
+                          borderRadius: AppTheme.borderRadiusSm,
+                        ),
+                        child: const Icon(Icons.add_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Add New Word',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: englishCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'English word',
+                      prefixIcon: Padding(
+                        padding: EdgeInsets.only(left: 12, right: 8),
+                        child: Text('🇬🇧', style: TextStyle(fontSize: 18)),
+                      ),
+                      prefixIconConstraints:
+                          BoxConstraints(minWidth: 0, minHeight: 0),
+                    ),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'Required' : null,
+                    autofocus: true,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: uzbekCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Uzbek translation',
+                      prefixIcon: Padding(
+                        padding: EdgeInsets.only(left: 12, right: 8),
+                        child: Text('🇺🇿', style: TextStyle(fontSize: 18)),
+                      ),
+                      prefixIconConstraints:
+                          BoxConstraints(minWidth: 0, minHeight: 0),
+                    ),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'Required' : null,
+                    onFieldSubmitted: (_) {
+                      if (formKey.currentState!.validate()) {
+                        ref.read(vocabProvider.notifier).addVocab(
+                              englishCtrl.text,
+                              uzbekCtrl.text,
+                            );
+                        Navigator.pop(ctx);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: () {
+                        if (formKey.currentState!.validate()) {
+                          ref.read(vocabProvider.notifier).addVocab(
+                                englishCtrl.text,
+                                uzbekCtrl.text,
+                              );
+                          Navigator.pop(ctx);
+                        }
+                      },
+                      child: const Text('Add Word',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showEditDialog(Vocab vocab) {
@@ -130,12 +225,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             TextField(
               controller: engCtrl,
-              decoration: const InputDecoration(labelText: 'English'),
+              decoration: const InputDecoration(hintText: 'English'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: uzCtrl,
-              decoration: const InputDecoration(labelText: 'Uzbek'),
+              decoration: const InputDecoration(hintText: 'Uzbek'),
             ),
           ],
         ),
@@ -165,402 +260,456 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final vocabList = ref.watch(vocabProvider);
     final profile = ref.watch(profileProvider);
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final canPlay = vocabList.length >= 4;
 
-    // Read profile data from Hive if provider hasn't loaded yet
     final profileBox = Hive.box('userProfile');
     final xp = profile?.xp ?? profileBox.get('xp', defaultValue: 0) as int;
-    final streakDays =
-        profile?.streakDays ?? profileBox.get('streakDays', defaultValue: 0) as int;
-    final username =
-        profile?.username ?? profileBox.get('username', defaultValue: '') as String;
-    final lastPlayed = profile?.lastPlayedDate ??
-        profileBox.get('lastPlayedDate') as String?;
+    final streakDays = profile?.streakDays ??
+        profileBox.get('streakDays', defaultValue: 0) as int;
+    final username = profile?.username ??
+        profileBox.get('username', defaultValue: '') as String;
+    final lastPlayed =
+        profile?.lastPlayedDate ?? profileBox.get('lastPlayedDate') as String?;
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final needsToPlayToday = streakDays > 0 && lastPlayed != today;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('VocabGame',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          // Profile button
-          IconButton(
-            icon: const Icon(Icons.person),
-            tooltip: 'Profile',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProfileScreen()),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ─── Stats Bar (XP + Streak) ─────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.3),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                gradient: AppTheme.primaryGradient,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text('🧠', style: TextStyle(fontSize: 16)),
             ),
-            child: Column(
-              children: [
-                // Username + Streak row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            const SizedBox(width: 10),
+            Text('VocabGame',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                )),
+          ],
+        ),
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // ─── Hero Header ────────────────────────────────────
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                padding: const EdgeInsets.all(20),
+                decoration: AppTheme.glassCard(isDark: isDark),
+                child: Column(
                   children: [
-                    if (username.isNotEmpty)
-                      Text(
-                        'Hi, $username! 👋',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    StreakWidget(streakDays: streakDays),
+                    // Username + Streak row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (username.isNotEmpty)
+                          Row(
+                            children: [
+                              // Avatar
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: AppTheme.primaryGradient,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.violet
+                                          .withValues(alpha: 0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  username[0].toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Hi, $username! 👋',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        StreakWidget(streakDays: streakDays),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    XpBarWidget(totalXp: xp),
                   ],
                 ),
-                const SizedBox(height: 10),
-                // XP Bar
-                XpBarWidget(totalXp: xp),
-              ],
-            ),
-          ),
-
-          // ─── Streak "Play Today" Banner ─────────────────────
-          if (needsToPlayToday)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.orange.withValues(alpha: 0.3)),
               ),
-              child: Row(
-                children: [
-                  const Text('🔥', style: TextStyle(fontSize: 20)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Play today to keep your $streakDays-day streak alive!',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.orange.shade800,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
-          // ─── Rival Card ────────────────────────────────────
-          if (_rivalName != null)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.red.withValues(alpha: 0.2)),
-              ),
-              child: Row(
-                children: [
-                  const Text('⚔️', style: TextStyle(fontSize: 18)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Your rival: $_rivalName — you\'re $_rivalXpGap XP behind',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.red.shade700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // ─── Quick Actions (Library, Leaderboard, Hall) ──────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                _QuickAction(
-                  icon: Icons.library_books,
-                  label: 'Library',
-                  color: Colors.indigo,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LibraryScreen()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _QuickAction(
-                  icon: Icons.leaderboard,
-                  label: 'Ranks',
-                  color: Colors.amber.shade700,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const LeaderboardScreen()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _QuickAction(
-                  icon: Icons.emoji_events,
-                  label: 'Fame',
-                  color: Colors.orange,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const HallOfFameScreen()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _QuickAction(
-                  icon: Icons.sports_kabaddi,
-                  label: 'Duels',
-                  color: Colors.red.shade600,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const DuelLobbyScreen()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ─── Add Word Form ──────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Form(
-              key: _formKey,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        TextFormField(
-                          controller: _englishController,
-                          decoration: InputDecoration(
-                            hintText: 'English word',
-                            filled: true,
-                            fillColor: theme.colorScheme.surface,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                          ),
-                          validator: (v) =>
-                              v == null || v.trim().isEmpty ? 'Required' : null,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _uzbekController,
-                          decoration: InputDecoration(
-                            hintText: 'Uzbek translation',
-                            filled: true,
-                            fillColor: theme.colorScheme.surface,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                          ),
-                          validator: (v) =>
-                              v == null || v.trim().isEmpty ? 'Required' : null,
-                          onFieldSubmitted: (_) => _addWord(),
-                        ),
+              // ─── Play Today Banner ──────────────────────────────
+              if (needsToPlayToday)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppTheme.fire.withValues(alpha: isDark ? 0.15 : 0.1),
+                        AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  InkWell(
-                    onTap: _addWord,
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      height: 104,
-                      width: 64,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        Icons.add,
-                        color: theme.colorScheme.onPrimary,
-                        size: 32,
-                      ),
+                    borderRadius: AppTheme.borderRadiusMd,
+                    border: Border.all(
+                      color: AppTheme.fire.withValues(alpha: 0.25),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-
-          // ─── List Title ─────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.all(16.0).copyWith(bottom: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Your Vocabulary',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '${vocabList.length} words',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ─── Vocab List ─────────────────────────────────────
-          Expanded(
-            child: vocabList.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.menu_book_rounded,
-                          size: 64,
-                          color: theme.colorScheme.surfaceContainerHighest,
-                        ),
-                        const SizedBox(height: 16),
-                        Text('No vocabulary yet.',
-                            style: theme.textTheme.titleMedium),
-                        Text(
-                          'Add words to start playing games!',
+                  child: Row(
+                    children: [
+                      const Text('🔥', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Play today to keep your $streakDays-day streak alive!',
                           style: TextStyle(
-                              color: theme.colorScheme.onSurfaceVariant),
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.fire,
+                            fontSize: 13,
+                          ),
                         ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ─── Rival Card ─────────────────────────────────────
+              if (_rivalName != null)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.08),
+                        AppTheme.violet.withValues(alpha: isDark ? 0.08 : 0.04),
                       ],
                     ),
-                  )
-                : ListView.builder(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    itemCount: vocabList.length,
-                    itemBuilder: (context, index) {
-                      final vocab = vocabList[index];
-                      return VocabTile(
-                        key: ValueKey(vocab.id),
-                        vocab: vocab,
-                        onDelete: () {
-                          ref
-                              .read(vocabProvider.notifier)
-                              .deleteVocab(vocab.id);
-                        },
-                        onEdit: () => _showEditDialog(vocab),
-                      );
-                    },
-                  ),
-          ),
-
-          // ─── Progress bar (< 4 words) ──────────────────────
-          if (!canPlay)
-            Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-              child: Column(
-                children: [
-                  LinearProgressIndicator(
-                    value: vocabList.length / 4,
-                    borderRadius: BorderRadius.circular(8),
-                    minHeight: 8,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Add ${4 - vocabList.length} more words to play games',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.error,
-                      fontWeight: FontWeight.bold,
+                    borderRadius: AppTheme.borderRadiusMd,
+                    border: Border.all(
+                      color: AppTheme.error.withValues(alpha: 0.2),
                     ),
                   ),
-                ],
+                  child: Row(
+                    children: [
+                      const Text('⚔️', style: TextStyle(fontSize: 20)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(children: [
+                            TextSpan(
+                              text: 'Your rival: ',
+                              style: TextStyle(
+                                color: isDark
+                                    ? AppTheme.textSecondaryDark
+                                    : AppTheme.textSecondaryLight,
+                                fontSize: 13,
+                              ),
+                            ),
+                            TextSpan(
+                              text: _rivalName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.error,
+                                fontSize: 13,
+                              ),
+                            ),
+                            TextSpan(
+                              text: ' — $_rivalXpGap XP ahead',
+                              style: TextStyle(
+                                color: isDark
+                                    ? AppTheme.textSecondaryDark
+                                    : AppTheme.textSecondaryLight,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ─── Quick Links Row ────────────────────────────────
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    _QuickChip(
+                      label: '🏆 Leaderboard',
+                      onTap: () => context.push('/home/leaderboard'),
+                      isDark: isDark,
+                    ),
+                    const SizedBox(width: 8),
+                    _QuickChip(
+                      label: '📜 History',
+                      onTap: () => context.push('/duels/history'),
+                      isDark: isDark,
+                    ),
+                    const SizedBox(width: 8),
+                    _QuickChip(
+                      label: '🏅 Hall of Fame',
+                      onTap: () => context.push('/home/hall-of-fame'),
+                      isDark: isDark,
+                    ),
+                  ],
+                ),
               ),
-            ),
-        ],
+
+              // ─── Vocab List Header ──────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Your Vocabulary',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${vocabList.length} words',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: AppTheme.violet,
+                            ),
+                          ),
+                        ),
+                        if (canPlay) ...[
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => context.push('/home/games'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                gradient: AppTheme.primaryGradient,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.violet.withValues(alpha: 0.25),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.play_arrow_rounded,
+                                      color: Colors.white, size: 16),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Practice',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // ─── Vocab List ─────────────────────────────────────
+              Expanded(
+                child: vocabList.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppTheme.violet
+                                    .withValues(alpha: isDark ? 0.1 : 0.06),
+                              ),
+                              child: Icon(
+                                Icons.menu_book_rounded,
+                                size: 56,
+                                color: AppTheme.violet
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Text('No vocabulary yet',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                )),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Tap + to add your first words!',
+                              style: TextStyle(
+                                color: isDark
+                                    ? AppTheme.textSecondaryDark
+                                    : AppTheme.textSecondaryLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        itemCount: vocabList.length,
+                        itemBuilder: (context, index) {
+                          final vocab = vocabList[index];
+                          return VocabTile(
+                            key: ValueKey(vocab.id),
+                            vocab: vocab,
+                            onDelete: () {
+                              ref
+                                  .read(vocabProvider.notifier)
+                                  .deleteVocab(vocab.id);
+                            },
+                            onEdit: () => _showEditDialog(vocab),
+                          );
+                        },
+                      ),
+              ),
+
+              // ─── Progress bar (< 4 words) ──────────────────────
+              if (!canPlay)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24.0, vertical: 8.0),
+                  child: Column(
+                    children: [
+                      Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.06)
+                              : Colors.black.withValues(alpha: 0.04),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: vocabList.length / 4,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              gradient: AppTheme.primaryGradient,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Add ${4 - vocabList.length} more words to play games',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.violet,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
-      floatingActionButton: canPlay
-          ? FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const GameSelectionScreen()),
-                );
-              },
-              icon: const Icon(Icons.gamepad),
-              label: const Text('Start Games',
-                  style:
-                      TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              backgroundColor: theme.colorScheme.primary,
-              foregroundColor: theme.colorScheme.onPrimary,
-            )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddWordSheet,
+        backgroundColor: AppTheme.violet,
+        foregroundColor: Colors.white,
+        elevation: 8,
+        child: const Icon(Icons.add_rounded, size: 28),
+      ),
     );
   }
 }
 
-// ─── Quick Action Button ──────────────────────────────────────────────
+// ─── Quick Chip ───────────────────────────────────────────────────────
 
-class _QuickAction extends StatelessWidget {
-  final IconData icon;
+class _QuickChip extends StatelessWidget {
   final String label;
-  final Color color;
   final VoidCallback onTap;
+  final bool isDark;
 
-  const _QuickAction({
-    required this.icon,
+  const _QuickChip({
     required this.label,
-    required this.color,
     required this.onTap,
+    required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: InkWell(
+      child: GestureDetector(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.black.withValues(alpha: 0.03),
+            borderRadius: AppTheme.borderRadiusSm,
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.04),
+            ),
           ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 24),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ],
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark
+                  ? AppTheme.textSecondaryDark
+                  : AppTheme.textSecondaryLight,
+            ),
           ),
         ),
       ),
@@ -624,9 +773,6 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
       child: ScaleTransition(
         scale: _scaleAnim,
         child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
           content: Column(
@@ -637,8 +783,8 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
               Text(
                 title,
                 style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.violet,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -650,20 +796,28 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      AppTheme.fire.withValues(alpha: 0.15),
+                      AppTheme.amber.withValues(alpha: 0.1),
+                    ],
+                  ),
+                  borderRadius: AppTheme.borderRadiusSm,
+                  border: Border.all(
+                    color: AppTheme.fire.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: Text(
                   '🔥 ${widget.milestone}-day streak',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.amber.shade700,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.fire,
                   ),
                 ),
               ),
@@ -674,14 +828,9 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
               width: double.infinity,
               child: FilledButton(
                 onPressed: () => Navigator.pop(context),
-                style: FilledButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
                 child: const Text('Keep Going! 💪',
-                    style: TextStyle(fontSize: 16)),
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               ),
             ),
           ],

@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../providers/profile_provider.dart';
 import '../../services/account_recovery_service.dart';
-import '../home_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// Account recovery screen — enter username + 6-digit PIN to restore account.
 ///
@@ -86,11 +87,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
       if (!mounted) return;
 
       // Success — go to home
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (route) => false,
-      );
+      context.go('/home');
     } else {
       setState(() {
         _loading = false;
@@ -110,11 +107,18 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
     final theme = Theme.of(context);
     final isLocked = _lockoutSeconds > 0;
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Recover Account'),
       ),
-      body: SafeArea(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Form(
@@ -128,13 +132,14 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
                     width: 80,
                     height: 80,
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer,
+                      gradient: AppTheme.primaryGradient,
                       shape: BoxShape.circle,
+                      boxShadow: AppTheme.shadowGlow(AppTheme.violet),
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.restore,
                       size: 40,
-                      color: theme.colorScheme.onPrimaryContainer,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -236,8 +241,8 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.08),
+                      borderRadius: AppTheme.borderRadiusSm,
                     ),
                     child: Row(
                       children: [
@@ -296,6 +301,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

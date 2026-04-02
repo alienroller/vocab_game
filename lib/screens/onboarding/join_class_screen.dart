@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../providers/profile_provider.dart';
-import 'pin_setup_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// Optional class join screen during onboarding.
 ///
@@ -78,10 +79,7 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
       }
 
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const PinSetupScreen()),
-        );
+        context.go('/onboarding/pin');
       }
     } catch (e) {
       if (mounted) {
@@ -138,47 +136,62 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
   }
 
   void _skip() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const PinSetupScreen()),
-    );
+    context.go('/onboarding/pin');
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 60),
-              Text(
-                'Join a class',
-                style: theme.textTheme.headlineLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 60),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.primaryGradient,
+                    borderRadius: AppTheme.borderRadiusMd,
+                  ),
+                  child: const Icon(Icons.group_add_rounded,
+                      color: Colors.white, size: 28),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Do you have a class code from your teacher?',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: 24),
+                Text(
+                  'Join a class',
+                  style: theme.textTheme.headlineLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  'Do you have a class code from your teacher?',
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                    fontSize: 15,
+                  ),
+                ),
               const SizedBox(height: 40),
               if (_className != null)
                 // Success state
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(16),
+                    color: AppTheme.success.withValues(alpha: isDark ? 0.1 : 0.06),
+                    borderRadius: AppTheme.borderRadiusMd,
                     border: Border.all(
-                      color: Colors.green.withValues(alpha: 0.3),
+                      color: AppTheme.success.withValues(alpha: 0.25),
                     ),
                   ),
                   child: Column(
@@ -276,6 +289,7 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
               const SizedBox(height: 48),
             ],
           ),
+        ),
         ),
       ),
     );

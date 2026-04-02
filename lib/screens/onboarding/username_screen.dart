@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../providers/profile_provider.dart';
 import '../../services/notification_service.dart';
 import '../../services/sync_service.dart';
-import 'join_class_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// Username selection screen during onboarding.
 ///
@@ -85,10 +86,7 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
       await NotificationService.requestPermission();
 
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const JoinClassScreen()),
-        );
+        context.go('/onboarding/join-class');
       }
     } catch (e) {
       if (mounted) {
@@ -106,107 +104,126 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
     final username = _controller.text.trim();
     final isValid = username.length >= 3 && _isAvailable == true;
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 60),
-                Text(
-                  'Choose your\nusername',
-                  style: theme.textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'This is how your classmates will see you on the leaderboard.',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 40),
-                TextFormField(
-                  controller: _controller,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.none,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Sardor2010',
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 60),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      borderRadius: AppTheme.borderRadiusMd,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 18),
-                    suffixIcon: _buildSuffixIcon(),
+                    child: const Icon(Icons.person_add_rounded,
+                        color: Colors.white, size: 28),
                   ),
-                  validator: (v) {
-                    if (v == null || v.trim().length < 3) {
-                      return 'At least 3 characters';
-                    }
-                    if (v.trim().length > 20) {
-                      return 'Max 20 characters';
-                    }
-                    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v.trim())) {
-                      return 'Letters, numbers, and underscores only';
-                    }
-                    return null;
-                  },
-                  onChanged: _onUsernameChanged,
-                  onFieldSubmitted: (_) => _submit(),
-                ),
-                const SizedBox(height: 12),
-                if (_isAvailable == true)
+                  const SizedBox(height: 24),
                   Text(
-                    '✅ Username is available!',
-                    style: TextStyle(
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.w500),
+                    'Choose your\nusername',
+                    style: theme.textTheme.headlineLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
                   ),
-                if (_isAvailable == false)
+                  const SizedBox(height: 8),
                   Text(
-                    '❌ Username is already taken',
+                    'This is how your classmates will see you on the leaderboard.',
                     style: TextStyle(
-                        color: Colors.red.shade700,
-                        fontWeight: FontWeight.w500),
+                      color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                      fontSize: 15,
+                    ),
                   ),
-                const Spacer(),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton(
-                    onPressed:
-                        isValid && !_submitting ? () => _submit() : null,
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                  const SizedBox(height: 36),
+                  TextFormField(
+                    controller: _controller,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.none,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Sardor2010',
+                      suffixIcon: _buildSuffixIcon(),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().length < 3) {
+                        return 'At least 3 characters';
+                      }
+                      if (v.trim().length > 20) {
+                        return 'Max 20 characters';
+                      }
+                      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v.trim())) {
+                        return 'Letters, numbers, and underscores only';
+                      }
+                      return null;
+                    },
+                    onChanged: _onUsernameChanged,
+                    onFieldSubmitted: (_) => _submit(),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_isAvailable == true)
+                    Text(
+                      '✅ Username is available!',
+                      style: TextStyle(
+                          color: AppTheme.success,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  if (_isAvailable == false)
+                    Text(
+                      '❌ Username is already taken',
+                      style: TextStyle(
+                          color: AppTheme.error,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  const Spacer(),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: Container(
+                      decoration: isValid && !_submitting
+                          ? BoxDecoration(
+                              gradient: AppTheme.primaryGradient,
+                              borderRadius: AppTheme.borderRadiusMd,
+                              boxShadow: AppTheme.shadowGlow(AppTheme.violet),
+                            )
+                          : null,
+                      child: FilledButton(
+                        onPressed:
+                            isValid && !_submitting ? () => _submit() : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: isValid && !_submitting
+                              ? Colors.transparent
+                              : null,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: AppTheme.borderRadiusMd,
+                          ),
+                        ),
+                        child: _submitting
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Continue'),
                       ),
                     ),
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Continue'),
                   ),
-                ),
-                const SizedBox(height: 48),
-              ],
+                  const SizedBox(height: 48),
+                ],
+              ),
             ),
           ),
         ),

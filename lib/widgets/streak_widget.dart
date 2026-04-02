@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Streak display widget with flame icon and day count.
-///
-/// Shows a pulsing animation when the streak is active (> 0 days).
+import '../theme/app_theme.dart';
+
+/// Premium streak display with gradient background and smooth animations.
 class StreakWidget extends StatefulWidget {
   final int streakDays;
 
@@ -47,21 +47,38 @@ class _StreakWidgetState extends State<StreakWidget>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isActive = widget.streakDays > 0;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
+        gradient: isActive
+            ? LinearGradient(
+                colors: [
+                  AppTheme.fire.withValues(alpha: isDark ? 0.2 : 0.12),
+                  AppTheme.amber.withValues(alpha: isDark ? 0.15 : 0.08),
+                ],
+              )
+            : null,
         color: isActive
-            ? Colors.orange.withValues(alpha: 0.15)
-            : theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(20),
+            ? null
+            : (isDark
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.black.withValues(alpha: 0.04)),
+        borderRadius: BorderRadius.circular(24),
+        border: isActive
+            ? Border.all(
+                color: AppTheme.fire.withValues(alpha: isDark ? 0.3 : 0.2))
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           ScaleTransition(
-            scale: isActive ? _scaleAnimation : const AlwaysStoppedAnimation(1.0),
+            scale: isActive
+                ? _scaleAnimation
+                : const AlwaysStoppedAnimation(1.0),
             child: Text(
               '🔥',
               style: TextStyle(fontSize: isActive ? 20 : 16),
@@ -71,21 +88,26 @@ class _StreakWidgetState extends State<StreakWidget>
           Text(
             '${widget.streakDays}',
             style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
               color: isActive
-                  ? Colors.orange.shade800
-                  : theme.colorScheme.onSurfaceVariant,
+                  ? AppTheme.fire
+                  : (isDark
+                      ? AppTheme.textSecondaryDark
+                      : AppTheme.textSecondaryLight),
             ),
           ),
-          const SizedBox(width: 2),
+          const SizedBox(width: 3),
           Text(
             widget.streakDays == 1 ? 'day' : 'days',
             style: TextStyle(
               fontSize: 12,
+              fontWeight: FontWeight.w600,
               color: isActive
-                  ? Colors.orange.shade700
-                  : theme.colorScheme.onSurfaceVariant,
+                  ? AppTheme.fire.withValues(alpha: 0.8)
+                  : (isDark
+                      ? AppTheme.textSecondaryDark
+                      : AppTheme.textSecondaryLight),
             ),
           ),
         ],

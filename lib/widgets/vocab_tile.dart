@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import '../models/vocab.dart';
 
+import '../models/vocab.dart';
+import '../theme/app_theme.dart';
+
+/// Glassmorphism vocabulary tile with swipe-to-delete and language indicators.
 class VocabTile extends StatelessWidget {
   final Vocab vocab;
   final VoidCallback onDelete;
@@ -15,48 +18,108 @@ class VocabTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onEdit,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Dismissible(
+        key: ValueKey('dismiss_${vocab.id}'),
+        direction: DismissDirection.endToStart,
+        onDismissed: (_) => onDelete(),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Colors.transparent, AppTheme.error],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: AppTheme.borderRadiusMd,
+          ),
+          child: const Icon(Icons.delete_rounded, color: Colors.white, size: 28),
+        ),
+        child: Container(
+          decoration: AppTheme.glassCard(isDark: isDark),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onEdit,
+              borderRadius: AppTheme.borderRadiusMd,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
                   children: [
-                    Text(
-                      vocab.english,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    // Language indicator
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            AppTheme.violet.withValues(alpha: 0.15),
+                            AppTheme.violet.withValues(alpha: 0.05),
+                          ],
+                        ),
+                        borderRadius: AppTheme.borderRadiusSm,
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text('🇬🇧', style: TextStyle(fontSize: 20)),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vocab.english,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Text('🇺🇿 ',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark
+                                          ? AppTheme.textSecondaryDark
+                                          : AppTheme.textSecondaryLight)),
+                              Expanded(
+                                child: Text(
+                                  vocab.uzbek,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: isDark
+                                        ? AppTheme.textSecondaryDark
+                                        : AppTheme.textSecondaryLight,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      vocab.uzbek,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: isDark
+                          ? AppTheme.textSecondaryDark.withValues(alpha: 0.5)
+                          : AppTheme.textSecondaryLight.withValues(alpha: 0.5),
+                      size: 20,
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                onPressed: onEdit,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: onDelete,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ],
+            ),
           ),
         ),
       ),

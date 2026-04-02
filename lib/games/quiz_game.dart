@@ -1,11 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
-import '../screens/result_screen.dart';
 import '../services/xp_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
 import 'game_streak_mixin.dart';
 
@@ -109,26 +110,13 @@ class _QuizGameState extends ConsumerState<QuizGame>
         });
       } else {
         // Game Over
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ResultScreen(
-              score: _score,
-              total: _quizVocab.length,
-              gameName: 'Quiz',
-              xpGained: _totalXp,
-              onPlayAgain: () {
-                setState(() {
-                  _currentIndex = 0;
-                  _score = 0;
-                  _totalXp = 0;
-                  _quizVocab.shuffle(Random());
-                  _generateOptions();
-                });
-              },
-            ),
-          ),
-        );
+        context.pushReplacement('/result', extra: {
+          'score': _score,
+          'total': _quizVocab.length,
+          'gameName': 'Quiz',
+          'gameRoute': '/games/quiz',
+          'xpGained': _totalXp,
+        });
       }
     });
   }
@@ -138,30 +126,37 @@ class _QuizGameState extends ConsumerState<QuizGame>
     if (_quizVocab.isEmpty) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final currentWord = _quizVocab[_currentIndex];
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Quiz'),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Center(
-              child: Text(
-                'Score: $_score',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppTheme.violet.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Score: $_score',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.violet),
+                ),
               ),
             ),
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4.0),
-          child: LinearProgressIndicator(
-            value: (_currentIndex + 1) / _quizVocab.length,
-          ),
-        ),
       ),
-      body: Stack(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: Stack(
         children: [
           SafeArea(
         child: Padding(
@@ -169,33 +164,52 @@ class _QuizGameState extends ConsumerState<QuizGame>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Progress bar
+              Container(
+                height: 6,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(3),
+                  color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
+                ),
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (_currentIndex + 1) / _quizVocab.length,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(3),
+                      gradient: AppTheme.primaryGradient,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               Text(
                 'Question ${_currentIndex + 1} of ${_quizVocab.length}',
-                style: theme.textTheme.titleMedium,
+                style: TextStyle(
+                  color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                  fontWeight: FontWeight.w600,
+                ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
               // English Word Card
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(24),
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+                decoration: AppTheme.glassCard(isDark: isDark),
                 child: Column(
                   children: [
                     Text(
                       'Translate this word:',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      style: TextStyle(
+                        color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 16),
                     Text(
                       currentWord.english,
                       style: theme.textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w800,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -207,35 +221,35 @@ class _QuizGameState extends ConsumerState<QuizGame>
               Expanded(
                 child: ListView.separated(
                   itemCount: _currentOptions.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 16),
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final option = _currentOptions[index];
                     final isCorrectOption = option == currentWord.uzbek;
                     final isSelected = _selectedIndex == index;
-                    
-                    Color getButtonColor() {
-                      if (!_answered) return theme.colorScheme.surface;
-                      if (isCorrectOption) return Colors.green.shade100;
-                      if (isSelected && !isCorrectOption) return Colors.red.shade100;
-                      return theme.colorScheme.surface;
+
+                    Color getBg() {
+                      if (!_answered) return isDark ? const Color(0xFF1E2140).withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.8);
+                      if (isCorrectOption) return AppTheme.success.withValues(alpha: isDark ? 0.15 : 0.1);
+                      if (isSelected && !isCorrectOption) return AppTheme.error.withValues(alpha: isDark ? 0.15 : 0.1);
+                      return isDark ? const Color(0xFF1E2140).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.6);
                     }
 
-                    Color getBorderColor() {
-                      if (!_answered) return theme.colorScheme.outline;
-                      if (isCorrectOption) return Colors.green;
-                      if (isSelected && !isCorrectOption) return Colors.red;
-                      return theme.colorScheme.outline.withValues(alpha: 0.5);
+                    Color getBorder() {
+                      if (!_answered) return isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06);
+                      if (isCorrectOption) return AppTheme.success;
+                      if (isSelected && !isCorrectOption) return AppTheme.error;
+                      return isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03);
                     }
 
                     return InkWell(
                       onTap: () => _checkAnswer(index),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: AppTheme.borderRadiusMd,
                       child: Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: getButtonColor(),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: getBorderColor(), width: 2),
+                          color: getBg(),
+                          borderRadius: AppTheme.borderRadiusMd,
+                          border: Border.all(color: getBorder(), width: 2),
                         ),
                         child: Row(
                           children: [
@@ -244,14 +258,14 @@ class _QuizGameState extends ConsumerState<QuizGame>
                               height: 32,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                                color: AppTheme.violet.withValues(alpha: 0.1),
                               ),
                               alignment: Alignment.center,
                               child: Text(
                                 ['A', 'B', 'C', 'D'][index],
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.primary,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.violet,
                                 ),
                               ),
                             ),
@@ -260,14 +274,14 @@ class _QuizGameState extends ConsumerState<QuizGame>
                               child: Text(
                                 option,
                                 style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
                                 ),
                               ),
                             ),
                             if (_answered && isCorrectOption)
-                              const Icon(Icons.check_circle, color: Colors.green)
+                              const Icon(Icons.check_circle_rounded, color: AppTheme.success)
                             else if (_answered && isSelected && !isCorrectOption)
-                              const Icon(Icons.cancel, color: Colors.red)
+                              const Icon(Icons.cancel_rounded, color: AppTheme.error)
                           ],
                         ),
                       ),
@@ -293,6 +307,7 @@ class _QuizGameState extends ConsumerState<QuizGame>
               ),
             ),
         ],
+        ),
       ),
     );
   }

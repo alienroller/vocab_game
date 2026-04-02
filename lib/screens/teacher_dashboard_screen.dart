@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/class_service.dart';
+import '../theme/app_theme.dart';
 
 /// Teacher Dashboard — shows all students in the teacher's class with stats.
 ///
@@ -96,14 +97,16 @@ class _TeacherDashboardScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title:
-            const Text('Class Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Class Dashboard', style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
             onPressed: () {
               setState(() => _loading = true);
               _loadStudents();
@@ -111,7 +114,11 @@ class _TeacherDashboardScreenState
           ),
         ],
       ),
-      body: _loading
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _students.isEmpty
               ? Center(
@@ -121,12 +128,16 @@ class _TeacherDashboardScreenState
                       const Text('👩‍🏫', style: TextStyle(fontSize: 64)),
                       const SizedBox(height: 16),
                       Text('No students yet',
-                          style: theme.textTheme.titleLarge),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          )),
                       const SizedBox(height: 8),
                       Text(
                         'Share class code ${widget.classCode} with your students',
                         style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant),
+                            color: isDark
+                                ? AppTheme.textSecondaryDark
+                                : AppTheme.textSecondaryLight),
                       ),
                     ],
                   ),
@@ -135,40 +146,59 @@ class _TeacherDashboardScreenState
                   onRefresh: _loadStudents,
                   child: Column(
                     children: [
-                      // Class summary
+                      // Class summary - glass card
                       Container(
                         width: double.infinity,
+                        margin: EdgeInsets.fromLTRB(
+                            16, MediaQuery.of(context).padding.top + kToolbarHeight + 8, 16, 12),
                         padding: const EdgeInsets.all(16),
-                        color: theme.colorScheme.primaryContainer
-                            .withValues(alpha: 0.3),
+                        decoration: AppTheme.glassCard(isDark: isDark),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                             _StatChip(
-                              icon: Icons.people,
+                              icon: Icons.people_rounded,
                               label: '${_students.length} Students',
+                              isDark: isDark,
+                            ),
+                            Container(
+                              width: 1,
+                              height: 28,
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.black.withValues(alpha: 0.06),
                             ),
                             _StatChip(
-                              icon: Icons.code,
+                              icon: Icons.code_rounded,
                               label: widget.classCode,
+                              isDark: isDark,
                             ),
                           ],
                         ),
                       ),
                       // Sort headers
-                      _buildSortHeader(theme),
-                      const Divider(height: 1),
+                      _buildSortHeader(theme, isDark),
+                      Divider(
+                        height: 1,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.04),
+                      ),
                       // Student rows
                       Expanded(
                         child: ListView.separated(
                           itemCount: _students.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
+                          separatorBuilder: (_, __) => Divider(
+                            height: 1,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : Colors.black.withValues(alpha: 0.03),
+                          ),
                           itemBuilder: (context, index) {
                             final s = _students[index];
                             final accuracy = _calcAccuracy(s);
 
-                            return Padding(
+                            return Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 12),
                               child: Row(
@@ -179,11 +209,12 @@ class _TeacherDashboardScreenState
                                     child: Text(
                                       '${index + 1}',
                                       style: TextStyle(
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w800,
                                         color: index < 3
-                                            ? theme.colorScheme.primary
-                                            : theme.colorScheme
-                                                .onSurfaceVariant,
+                                            ? AppTheme.violet
+                                            : (isDark
+                                                ? AppTheme.textSecondaryDark
+                                                : AppTheme.textSecondaryLight),
                                       ),
                                     ),
                                   ),
@@ -192,19 +223,22 @@ class _TeacherDashboardScreenState
                                     flex: 3,
                                     child: Row(
                                       children: [
-                                        CircleAvatar(
-                                          radius: 16,
-                                          backgroundColor: theme
-                                              .colorScheme.primaryContainer,
+                                        Container(
+                                          width: 32,
+                                          height: 32,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            gradient: AppTheme.primaryGradient,
+                                          ),
+                                          alignment: Alignment.center,
                                           child: Text(
                                             (s['username'] as String? ??
                                                     '?')[0]
                                                 .toUpperCase(),
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
                                               fontSize: 12,
-                                              color: theme.colorScheme
-                                                  .onPrimaryContainer,
+                                              color: Colors.white,
                                             ),
                                           ),
                                         ),
@@ -227,7 +261,7 @@ class _TeacherDashboardScreenState
                                       '${s['xp'] ?? 0}',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
+                                          fontWeight: FontWeight.w700),
                                     ),
                                   ),
                                   // Level
@@ -262,12 +296,12 @@ class _TeacherDashboardScreenState
                                       '${accuracy.round()}%',
                                       textAlign: TextAlign.end,
                                       style: TextStyle(
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w800,
                                         color: accuracy >= 70
-                                            ? Colors.green
+                                            ? AppTheme.success
                                             : accuracy >= 40
-                                                ? Colors.orange
-                                                : Colors.red,
+                                                ? AppTheme.amber
+                                                : AppTheme.error,
                                       ),
                                     ),
                                   ),
@@ -280,10 +314,11 @@ class _TeacherDashboardScreenState
                     ],
                   ),
                 ),
+      ),
     );
   }
 
-  Widget _buildSortHeader(ThemeData theme) {
+  Widget _buildSortHeader(ThemeData theme, bool isDark) {
     Widget header(String label, _SortColumn col,
         {int flex = 1, double? width}) {
       final isActive = _sortBy == col;
@@ -296,17 +331,19 @@ class _TeacherDashboardScreenState
               label,
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
                 color: isActive
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+                    ? AppTheme.violet
+                    : (isDark
+                        ? AppTheme.textSecondaryDark
+                        : AppTheme.textSecondaryLight),
               ),
             ),
             if (isActive)
               Icon(
                 _ascending ? Icons.arrow_upward : Icons.arrow_downward,
                 size: 12,
-                color: theme.colorScheme.primary,
+                color: AppTheme.violet,
               ),
           ],
         ),
@@ -338,18 +375,19 @@ enum _SortColumn { username, xp, level, streak, words, accuracy }
 class _StatChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _StatChip({required this.icon, required this.label});
+  final bool isDark;
+  const _StatChip({required this.icon, required this.label, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+        Icon(icon, size: 18, color: AppTheme.violet),
         const SizedBox(width: 6),
         Text(label,
             style: const TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 14)),
+                fontWeight: FontWeight.w700, fontSize: 14)),
       ],
     );
   }

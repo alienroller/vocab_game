@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../theme/app_theme.dart';
 
 /// Duel results screen — shown after both players finish.
 ///
@@ -45,20 +48,42 @@ class DuelResultsScreen extends StatelessWidget {
       accentColor = Colors.red;
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      body: SafeArea(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Result emoji
+              // Result emoji with gradient ring
               Container(
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      accentColor.withValues(alpha: 0.3),
+                      accentColor.withValues(alpha: 0.05),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.4),
+                    width: 3,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accentColor.withValues(alpha: 0.25),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
                 child: Center(
                   child: Text(emoji, style: const TextStyle(fontSize: 56)),
@@ -70,61 +95,87 @@ class DuelResultsScreen extends StatelessWidget {
               Text(
                 title,
                 style: theme.textTheme.headlineLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                   color: accentColor,
                 ),
               ),
               const SizedBox(height: 32),
 
-              // Score comparison
+              // Score comparison — glass card
               Container(
                 padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(20),
-                ),
+                decoration: AppTheme.glassCard(isDark: isDark),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     Column(
                       children: [
-                        const Text('You',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('You',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            )),
                         const SizedBox(height: 8),
                         Text(
                           '$myScore',
                           style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: didWin ? Colors.green : null,
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                            color: didWin ? AppTheme.success : null,
                           ),
                         ),
-                        Text('/ $totalWords'),
+                        Text('/ $totalWords',
+                            style: TextStyle(
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            )),
                       ],
                     ),
-                    Text(
-                      'VS',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurfaceVariant,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: AppTheme.fireGradient,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        'VS',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                     Column(
                       children: [
                         Text(opponentUsername,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold)),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            )),
                         const SizedBox(height: 8),
                         Text(
                           '$opponentScore',
                           style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: !didWin && !isDraw ? Colors.red : null,
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                            color: !didWin && !isDraw ? AppTheme.error : null,
                           ),
                         ),
-                        Text('/ $totalWords'),
+                        Text('/ $totalWords',
+                            style: TextStyle(
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            )),
                       ],
                     ),
                   ],
@@ -132,25 +183,33 @@ class DuelResultsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
-              // XP gained
+              // XP gained — gradient badge
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      AppTheme.amber.withValues(alpha: isDark ? 0.2 : 0.15),
+                      AppTheme.amber.withValues(alpha: isDark ? 0.08 : 0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: AppTheme.amber.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.bolt, color: Colors.amber, size: 28),
+                    const Icon(Icons.bolt, color: AppTheme.amber, size: 28),
                     const SizedBox(width: 8),
                     Text(
                       '+$myXpGain XP',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.amber.shade800,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.amber,
                       ),
                     ),
                   ],
@@ -163,19 +222,28 @@ class DuelResultsScreen extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   height: 56,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      // Pop back to lobby to challenge again
-                      Navigator.of(context)
-                          .popUntil((route) => route.isFirst);
-                    },
-                    icon: const Icon(Icons.replay),
-                    label: const Text('Rematch!',
-                        style: TextStyle(fontSize: 18)),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.fireGradient,
+                      borderRadius: AppTheme.borderRadiusMd,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.fire.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: FilledButton.icon(
+                      onPressed: () => context.go('/home'),
+                      icon: const Icon(Icons.replay),
+                      label: const Text('Rematch!',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: AppTheme.borderRadiusMd,
+                        ),
                       ),
                     ),
                   ),
@@ -188,21 +256,24 @@ class DuelResultsScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(context)
-                        .popUntil((route) => route.isFirst);
-                  },
+                  onPressed: () => context.go('/home'),
                   style: OutlinedButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: AppTheme.borderRadiusMd,
+                    ),
+                    side: BorderSide(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.15)
+                          : Colors.black.withValues(alpha: 0.1),
                     ),
                   ),
                   child: const Text('Back to Home',
-                      style: TextStyle(fontSize: 18)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
           ),
+        ),
         ),
       ),
     );

@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/duel_service.dart';
-import 'duel_game_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// Duel lobby — choose an opponent from your class to challenge.
 class DuelLobbyScreen extends ConsumerStatefulWidget {
@@ -106,21 +107,28 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final profileBox = Hive.box('userProfile');
     final classCode = profileBox.get('classCode') as String?;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Duel Arena',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.w800)),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : classCode == null
-              ? _buildNoClassState(theme)
-              : _classmates.isEmpty
-                  ? _buildNoClassmatesState(theme)
-                  : _buildClassmatesList(theme),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : classCode == null
+                ? _buildNoClassState(theme)
+                : _classmates.isEmpty
+                    ? _buildNoClassmatesState(theme)
+                    : _buildClassmatesList(theme),
+      ),
     );
   }
 
@@ -170,6 +178,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen> {
   }
 
   Widget _buildClassmatesList(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.builder(
@@ -178,38 +187,151 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen> {
         itemBuilder: (context, index) {
           final mate = _classmates[index];
           final hasPending = _hasPendingDuelWith(mate['id'] as String);
+          final username = mate['username'] as String? ?? '???';
+          final level = mate['level'] as int? ?? 1;
+          final xp = mate['xp'] as int? ?? 0;
 
-          return Card(
+          return Container(
             margin: const EdgeInsets.only(bottom: 12),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: CircleAvatar(
-                backgroundColor: theme.colorScheme.primaryContainer,
-                child: Text(
-                  (mate['username'] as String? ?? '?')[0].toUpperCase(),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onPrimaryContainer,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: isDark
+                  ? AppTheme.darkGlassGradient
+                  : AppTheme.lightGlassGradient,
+              borderRadius: AppTheme.borderRadiusMd,
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
+              boxShadow: AppTheme.shadowSoft,
+            ),
+            child: Row(
+              children: [
+                // Avatar with gradient ring
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AppTheme.primaryGradient,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.violet.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    username[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                    ),
                   ),
                 ),
-              ),
-              title: Text(
-                mate['username'] ?? '???',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                'Level ${mate['level'] ?? 1} • ${mate['xp'] ?? 0} XP',
-              ),
-              trailing: hasPending
-                  ? Chip(
-                      label: const Text('Pending'),
-                      backgroundColor: Colors.orange.withValues(alpha: 0.2),
-                    )
-                  : FilledButton.icon(
-                      onPressed: () => _challengePlayer(mate),
-                      icon: const Icon(Icons.flash_on, size: 18),
-                      label: const Text('Challenge'),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        username,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.amber
+                                  .withValues(alpha: isDark ? 0.15 : 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Lv $level',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.amber,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$xp XP',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (hasPending)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.fire.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppTheme.fire.withValues(alpha: 0.2),
+                      ),
                     ),
+                    child: const Text(
+                      '⏳ Pending',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.fire,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF6D00), Color(0xFFFF3D00)],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.fire.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: FilledButton.icon(
+                      onPressed: () => _challengePlayer(mate),
+                      icon: const Icon(Icons.flash_on, size: 16),
+                      label: const Text('Fight'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           );
         },
@@ -257,16 +379,11 @@ class _DuelInvitesScreenState extends State<DuelInvitesScreen> {
     if (success && mounted) {
       final words = List<Map<String, dynamic>>.from(
           (duel['word_set'] as List).map((w) => Map<String, dynamic>.from(w)));
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DuelGameScreen(
-            duelId: duel['id'] as String,
-            words: words,
-            isChallenger: false,
-          ),
-        ),
-      );
+      context.push('/duels/game', extra: {
+        'duelId': duel['id'] as String,
+        'words': words,
+        'isChallenger': false,
+      });
     }
   }
 
@@ -278,52 +395,82 @@ class _DuelInvitesScreenState extends State<DuelInvitesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Duel Invites',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.w800)),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _invites.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('📩', style: TextStyle(fontSize: 48)),
-                      const SizedBox(height: 16),
-                      Text('No pending invites',
-                          style: theme.textTheme.titleLarge),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _invites.length,
-                  itemBuilder: (context, index) {
-                    final invite = _invites[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: Padding(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _invites.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('📩', style: TextStyle(fontSize: 48)),
+                        const SizedBox(height: 16),
+                        Text('No pending invites',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            )),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.fromLTRB(
+                        16, kToolbarHeight + MediaQuery.of(context).padding.top + 16, 16, 24),
+                    itemCount: _invites.length,
+                    itemBuilder: (context, index) {
+                      final invite = _invites[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(16),
+                        decoration: AppTheme.glassCard(isDark: isDark),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '${invite['challenger_username']} challenges you! ⚔️',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
+                            Row(
+                              children: [
+                                const Text('⚔️',
+                                    style: TextStyle(fontSize: 22)),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    '${invite['challenger_username']} challenges you!',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.violet
+                                    .withValues(alpha: isDark ? 0.12 : 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${(invite['word_set'] as List).length} words',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.violet,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${(invite['word_set'] as List).length} words',
-                              style: TextStyle(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
@@ -333,18 +480,27 @@ class _DuelInvitesScreenState extends State<DuelInvitesScreen> {
                                   child: const Text('Decline'),
                                 ),
                                 const SizedBox(width: 12),
-                                FilledButton(
-                                  onPressed: () => _acceptDuel(invite),
-                                  child: const Text('Accept'),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: AppTheme.primaryGradient,
+                                    borderRadius: AppTheme.borderRadiusMd,
+                                  ),
+                                  child: FilledButton(
+                                    onPressed: () => _acceptDuel(invite),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                    ),
+                                    child: const Text('Accept ⚔️'),
+                                  ),
                                 ),
                               ],
                             ),
                           ],
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
+      ),
     );
   }
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../theme/app_theme.dart';
+
 /// Duel history screen — shows all finished duels for the current user.
 ///
 /// Displays opponent name, score, win/loss, XP gained, and date.
@@ -50,46 +52,55 @@ class _DuelHistoryScreenState extends State<DuelHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Duel History',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.w800)),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _duels.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('⚔️', style: TextStyle(fontSize: 64)),
-                      const SizedBox(height: 16),
-                      Text('No duels yet',
-                          style: theme.textTheme.titleLarge),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Challenge a classmate to your first duel!',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _duels.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('⚔️', style: TextStyle(fontSize: 64)),
+                        const SizedBox(height: 16),
+                        Text('No duels yet',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            )),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Challenge a classmate to your first duel!',
+                          style: TextStyle(
+                            color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadDuels,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _duels.length,
+                      itemBuilder: (context, index) {
+                        return _DuelHistoryCard(
+                          duel: _duels[index],
+                          myId: _myId,
+                        );
+                      },
+                    ),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadDuels,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _duels.length,
-                    itemBuilder: (context, index) {
-                      return _DuelHistoryCard(
-                        duel: _duels[index],
-                        myId: _myId,
-                      );
-                    },
-                  ),
-                ),
+      ),
     );
   }
 }
@@ -102,7 +113,6 @@ class _DuelHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
 
     final isChallenger = duel['challenger_id'] == myId;
     final opponentName = isChallenger
@@ -153,95 +163,126 @@ class _DuelHistoryCard extends StatelessWidget {
             ? 'Won'
             : 'Lost';
 
-    return Card(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            // Result icon
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: resultColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Text(resultIcon, style: const TextStyle(fontSize: 24)),
-              ),
-            ),
-            const SizedBox(width: 16),
-            // Details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'vs $opponentName',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: resultColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          resultLabel,
-                          style: TextStyle(
-                            color: resultColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$myScore - $opponentScore',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        dateLabel,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: isDark
+            ? AppTheme.darkGlassGradient
+            : AppTheme.lightGlassGradient,
+        borderRadius: AppTheme.borderRadiusMd,
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.06),
+        ),
+        boxShadow: AppTheme.shadowSoft,
+      ),
+      child: Row(
+        children: [
+          // Result icon with gradient bg
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  resultColor.withValues(alpha: 0.2),
+                  resultColor.withValues(alpha: 0.05),
                 ],
               ),
-            ),
-            // XP gained
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.amber.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: resultColor.withValues(alpha: 0.25),
               ),
-              child: Text(
-                '+$xpGained XP',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.amber.shade700,
-                  fontSize: 13,
+            ),
+            child: Center(
+              child: Text(resultIcon, style: const TextStyle(fontSize: 24)),
+            ),
+          ),
+          const SizedBox(width: 14),
+          // Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'vs $opponentName',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
                 ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: resultColor.withValues(alpha: isDark ? 0.15 : 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: resultColor.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Text(
+                        resultLabel,
+                        style: TextStyle(
+                          color: resultColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$myScore - $opponentScore',
+                      style: TextStyle(
+                        color: isDark
+                            ? AppTheme.textSecondaryDark
+                            : AppTheme.textSecondaryLight,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      dateLabel,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppTheme.textSecondaryDark
+                            : AppTheme.textSecondaryLight,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // XP gained badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.amber.withValues(alpha: isDark ? 0.15 : 0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppTheme.amber.withValues(alpha: 0.2),
               ),
             ),
-          ],
-        ),
+            child: Text(
+              '+$xpGained XP',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppTheme.amber,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

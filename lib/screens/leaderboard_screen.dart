@@ -2,11 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../theme/app_theme.dart';
 import '../widgets/leaderboard_row_widget.dart';
-import 'duel/duel_lobby_screen.dart';
 
 /// Leaderboard screen with three tabs: My Class, Global, This Week.
 ///
@@ -184,10 +185,13 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Leaderboard',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+            style: TextStyle(fontWeight: FontWeight.w800)),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -198,7 +202,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
             onPressed: () {
               setState(() => _loading = true);
               _loadData();
@@ -206,16 +210,21 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildBoard(_classBoard, scoreKey: 'xp', showChallenge: true),
-                _buildBoard(_globalBoard, scoreKey: 'xp'),
-                _buildWeeklyBoard(),
-              ],
-            ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildBoard(_classBoard, scoreKey: 'xp', showChallenge: true),
+                  _buildBoard(_globalBoard, scoreKey: 'xp'),
+                  _buildWeeklyBoard(),
+                ],
+              ),
+      ),
     );
   }
 
@@ -295,12 +304,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
             isCurrentUser: isMe,
             showChallengeButton: showChallenge && !isMe,
             onChallenge: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const DuelLobbyScreen(),
-                ),
-              );
+              context.push('/duels');
             },
           );
         },

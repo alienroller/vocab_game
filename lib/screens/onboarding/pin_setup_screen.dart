@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../services/account_recovery_service.dart';
-import '../home_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// PIN setup screen — shown during onboarding after username selection.
 ///
@@ -49,11 +50,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
 
       if (!mounted) return;
 
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (route) => false,
-      );
+      context.go('/home');
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,11 +63,18 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Set Recovery PIN'),
       ),
-      body: SafeArea(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Form(
@@ -82,10 +86,10 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    color: AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
+                    borderRadius: AppTheme.borderRadiusSm,
                     border: Border.all(
-                      color: Colors.amber.withValues(alpha: 0.3),
+                      color: AppTheme.amber.withValues(alpha: 0.25),
                     ),
                   ),
                   child: Row(
@@ -204,27 +208,39 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                 SizedBox(
                   width: double.infinity,
                   height: 56,
-                  child: FilledButton(
-                    onPressed: _saving ? null : _savePin,
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: _saving
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
+                  child: Container(
+                    decoration: !_saving
+                        ? BoxDecoration(
+                            gradient: AppTheme.primaryGradient,
+                            borderRadius: AppTheme.borderRadiusMd,
+                            boxShadow: AppTheme.shadowGlow(AppTheme.violet),
                           )
-                        : const Text('Save & Continue',
-                            style: TextStyle(fontSize: 18)),
+                        : null,
+                    child: FilledButton(
+                      onPressed: _saving ? null : _savePin,
+                      style: FilledButton.styleFrom(
+                        backgroundColor:
+                            !_saving ? Colors.transparent : null,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: AppTheme.borderRadiusMd,
+                        ),
+                      ),
+                      child: _saving
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Save & Continue',
+                              style: TextStyle(fontSize: 18)),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+        ),
         ),
       ),
     );

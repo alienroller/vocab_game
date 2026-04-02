@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/duel_service.dart';
-import 'duel_results_screen.dart';
+import '../../theme/app_theme.dart';
 
 /// Live duel game screen — both players answer the same words simultaneously.
 ///
@@ -171,20 +172,15 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
           ? (result?['challenger_xp'] as int?) ?? 0
           : (result?['opponent_xp'] as int?) ?? 0;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DuelResultsScreen(
-            myScore: _myScore,
-            opponentScore: _opponentScore,
-            totalWords: widget.words.length,
-            myXpGain: myXpGain,
-            didWin: _myScore > _opponentScore,
-            isDraw: _myScore == _opponentScore,
-            opponentUsername: opponentName,
-          ),
-        ),
-      );
+      context.pushReplacement('/duels/results', extra: {
+        'myScore': _myScore,
+        'opponentScore': _opponentScore,
+        'totalWords': widget.words.length,
+        'myXpGain': myXpGain,
+        'didWin': _myScore > _opponentScore,
+        'isDraw': _myScore == _opponentScore,
+        'opponentUsername': opponentName,
+      });
     }
   }
 
@@ -199,59 +195,78 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
 
     final currentWord = widget.words[_currentIndex];
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('⚔️ Duel'),
         automaticallyImplyLeading: false,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4),
-          child: LinearProgressIndicator(
-            value: (_currentIndex + 1) / widget.words.length,
-          ),
-        ),
       ),
-      body: Column(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: SafeArea(
+        child: Column(
         children: [
-          // Score bar
+          // Score bar — glass
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            color: theme.colorScheme.surfaceContainerHighest
-                .withValues(alpha: 0.3),
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            decoration: AppTheme.glassCard(isDark: isDark),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   children: [
-                    const Text('You',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('You',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                        )),
+                    const SizedBox(height: 4),
                     Text(
                       '$_myScore',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.violet,
                       ),
                     ),
                   ],
                 ),
-                Text(
-                  'VS',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.fireGradient,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    '⚔️ VS',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 Column(
                   children: [
-                    const Text('Opponent',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Opponent',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                        )),
+                    const SizedBox(height: 4),
                     Text(
                       '$_opponentScore',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red.shade700,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.error,
                       ),
                     ),
                   ],
@@ -259,31 +274,42 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // Word card
+          // Progress
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Question ${_currentIndex + 1} of ${widget.words.length}',
+              style: TextStyle(
+                color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Word card — glass
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(20),
-              ),
+              padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+              decoration: AppTheme.glassCard(isDark: isDark),
               child: Column(
                 children: [
                   Text(
-                    'Translate:',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    'Translate this word:',
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Text(
                     currentWord['word'] as String? ?? '',
                     style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w800,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -291,46 +317,80 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
 
-          // Options
+          // Options — glass cards
           Expanded(
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               itemCount: _currentOptions.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final option = _currentOptions[index];
                 final isCorrect =
                     option == currentWord['translation'];
                 final isSelected = _selectedOption == index;
 
-                Color bgColor = theme.colorScheme.surface;
-                Color borderColor = theme.colorScheme.outline;
-
-                if (_answered) {
-                  if (isCorrect) {
-                    bgColor = Colors.green.withValues(alpha: 0.15);
-                    borderColor = Colors.green;
-                  } else if (isSelected) {
-                    bgColor = Colors.red.withValues(alpha: 0.15);
-                    borderColor = Colors.red;
+                Color getBg() {
+                  if (!_answered) {
+                    return isDark
+                        ? const Color(0xFF1E2140).withValues(alpha: 0.7)
+                        : Colors.white.withValues(alpha: 0.8);
                   }
+                  if (isCorrect) return AppTheme.success.withValues(alpha: isDark ? 0.15 : 0.1);
+                  if (isSelected && !isCorrect) return AppTheme.error.withValues(alpha: isDark ? 0.15 : 0.1);
+                  return isDark ? const Color(0xFF1E2140).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.6);
+                }
+
+                Color getBorder() {
+                  if (!_answered) return isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06);
+                  if (isCorrect) return AppTheme.success;
+                  if (isSelected && !isCorrect) return AppTheme.error;
+                  return isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03);
                 }
 
                 return InkWell(
                   onTap: () => _checkAnswer(index),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: AppTheme.borderRadiusMd,
                   child: Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: borderColor, width: 2),
+                      color: getBg(),
+                      borderRadius: AppTheme.borderRadiusMd,
+                      border: Border.all(color: getBorder(), width: 2),
                     ),
-                    child: Text(
-                      option,
-                      style: theme.textTheme.titleMedium,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppTheme.violet.withValues(alpha: 0.1),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            ['A', 'B', 'C', 'D'][index],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.violet,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            option,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        if (_answered && isCorrect)
+                          const Icon(Icons.check_circle_rounded, color: AppTheme.success)
+                        else if (_answered && isSelected && !isCorrect)
+                          const Icon(Icons.cancel_rounded, color: AppTheme.error),
+                      ],
                     ),
                   ),
                 );
@@ -338,6 +398,8 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
             ),
           ),
         ],
+      ),
+      ),
       ),
     );
   }
