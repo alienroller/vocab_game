@@ -77,6 +77,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final profileBox = Hive.box('userProfile');
     final classCode = profileBox.get('classCode') as String?;
     final myUsername = profileBox.get('username') as String?;
+    // Use LOCAL XP (always freshest) instead of Supabase's potentially stale value
+    final myXp = profileBox.get('xp', defaultValue: 0) as int;
     if (classCode == null || classCode.isEmpty || myUsername == null) return;
 
     try {
@@ -88,17 +90,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .limit(50);
 
       final list = List<Map<String, dynamic>>.from(data);
-      for (int i = 0; i < list.length; i++) {
-        if (list[i]['username'] == myUsername && i > 0) {
-          final rival = list[i - 1];
-          if (mounted) {
-            setState(() {
-              _rivalName = rival['username'] as String?;
-              _rivalXpGap = (rival['xp'] as int) - (list[i]['xp'] as int);
-            });
-          }
+
+      // Remove self from the list and use local XP for ranking
+      final others = list.where((e) => e['username'] != myUsername).toList();
+      if (others.isEmpty) return;
+
+      // Find the person directly above us
+      // (first person in the sorted list whose XP is higher than ours)
+      Map<String, dynamic>? rivalAbove;
+      for (final person in others.reversed) {
+        final theirXp = person['xp'] as int? ?? 0;
+        if (theirXp > myXp) {
+          rivalAbove = person;
           break;
         }
+      }
+
+      if (rivalAbove != null && mounted) {
+        setState(() {
+          _rivalName = rivalAbove!['username'] as String?;
+          _rivalXpGap = (rivalAbove['xp'] as int) - myXp;
+        });
+      } else if (mounted) {
+        // User is #1 in the class — show the person just below as "chasing you"
+        final closestBelow = others.firstWhere(
+          (e) => (e['xp'] as int? ?? 0) <= myXp,
+          orElse: () => others.first,
+        );
+        setState(() {
+          _rivalName = closestBelow['username'] as String?;
+          _rivalXpGap = (closestBelow['xp'] as int? ?? 0) - myXp; // negative = you're ahead
+        });
       }
     } catch (_) {}
   }
@@ -464,11 +486,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               ),
                             ),
                             TextSpan(
-                              text: ' — $_rivalXpGap XP ahead',
+                              text: _rivalXpGap > 0
+                                  ? ' — $_rivalXpGap XP ahead'
+                                  : ' — you lead by ${_rivalXpGap.abs()} XP 🔥',
                               style: TextStyle(
-                                color: isDark
-                                    ? AppTheme.textSecondaryDark
-                                    : AppTheme.textSecondaryLight,
+                                color: _rivalXpGap > 0
+                                    ? (isDark
+                                        ? AppTheme.textSecondaryDark
+                                        : AppTheme.textSecondaryLight)
+                                    : AppTheme.success,
+                                fontWeight:
+                                    _rivalXpGap <= 0 ? FontWeight.w600 : null,
                                 fontSize: 13,
                               ),
                             ),

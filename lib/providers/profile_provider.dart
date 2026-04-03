@@ -111,6 +111,9 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
 
     await _saveToHive(profile);
     state = _cloneProfile(profile);
+
+    // Sync to cloud immediately so leaderboard/rival data stays fresh
+    await SyncService.syncProfile(state!);
   }
 
   /// Records answers for a game session (batch update).
@@ -165,6 +168,9 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
 
     await _saveToHive(profile);
     state = _cloneProfile(profile);
+
+    // Sync streak to cloud so it's visible on other devices
+    await SyncService.syncProfile(state!);
   }
 
   /// Sets the class code for this profile.
@@ -175,6 +181,9 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
 
     await _saveToHive(profile);
     state = _cloneProfile(profile);
+
+    // Sync class change to cloud
+    await SyncService.syncProfile(state!);
   }
 
   /// Updates the username.
