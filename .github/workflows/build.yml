@@ -69,7 +69,7 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//')
           echo "name=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Upload APK to Telegram
+      - name: Set version name
         run: |
           VERSION="${{ steps.version.outputs.name }}"
 
