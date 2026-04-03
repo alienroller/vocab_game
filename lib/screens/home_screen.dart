@@ -25,8 +25,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   String? _rivalName;
-  int _rivalXpGap = 0;
-  int _lastXp = -1; // track XP changes to know when to re-fetch rival
+  int _rivalXp = 0; // store rival's actual XP, calculate gap live in build()
 
   @override
   void initState() {
@@ -77,8 +76,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final profileBox = Hive.box('userProfile');
     final classCode = profileBox.get('classCode') as String?;
     final myUsername = profileBox.get('username') as String?;
-    // Use LOCAL XP (always freshest) instead of Supabase's potentially stale value
-    final myXp = profileBox.get('xp', defaultValue: 0) as int;
     if (classCode == null || classCode.isEmpty || myUsername == null) return;
 
     try {
@@ -91,12 +88,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
       final list = List<Map<String, dynamic>>.from(data);
 
-      // Remove self from the list and use local XP for ranking
+      // Remove self from the list
       final others = list.where((e) => e['username'] != myUsername).toList();
       if (others.isEmpty) return;
 
-      // Find the person directly above us
-      // (first person in the sorted list whose XP is higher than ours)
+      // Use local XP to determine who the closest rival above us is
+      final myXp = profileBox.get('xp', defaultValue: 0) as int;
+
+      // Find the person directly above us (closest rival with higher XP)
       Map<String, dynamic>? rivalAbove;
       for (final person in others.reversed) {
         final theirXp = person['xp'] as int? ?? 0;
@@ -109,17 +108,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (rivalAbove != null && mounted) {
         setState(() {
           _rivalName = rivalAbove!['username'] as String?;
-          _rivalXpGap = (rivalAbove['xp'] as int) - myXp;
+          _rivalXp = rivalAbove['xp'] as int? ?? 0;
         });
       } else if (mounted) {
-        // User is #1 in the class — show the person just below as "chasing you"
+        // User is #1 — show the person just below as "chasing you"
         final closestBelow = others.firstWhere(
           (e) => (e['xp'] as int? ?? 0) <= myXp,
           orElse: () => others.first,
         );
         setState(() {
           _rivalName = closestBelow['username'] as String?;
-          _rivalXpGap = (closestBelow['xp'] as int? ?? 0) - myXp; // negative = you're ahead
+          _rivalXp = closestBelow['xp'] as int? ?? 0;
         });
       }
     } catch (_) {}
@@ -304,11 +303,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final profileBox = Hive.box('userProfile');
     final xp = profile?.xp ?? profileBox.get('xp', defaultValue: 0) as int;
 
-    // Re-fetch rival whenever XP changes (reactive via ref.watch above)
-    if (xp != _lastXp && _lastXp != -1) {
-      Future.microtask(() => _fetchRival());
-    }
-    _lastXp = xp;
+    // The rival gap is computed LIVE below using _rivalXp - xp,
+    // so it updates instantly when profile XP changes via ref.watch.
 
     final streakDays = profile?.streakDays ??
         profileBox.get('streakDays', defaultValue: 0) as int;
@@ -486,17 +482,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               ),
                             ),
                             TextSpan(
-                              text: _rivalXpGap > 0
-                                  ? ' — $_rivalXpGap XP ahead'
-                                  : ' — you lead by ${_rivalXpGap.abs()} XP 🔥',
+                              text: () {
+                                final gap = _rivalXp - xp;
+                                if (gap > 0) return ' — $gap XP ahead';
+                                if (gap == 0) return ' — tied!';
+                                return ' — you lead by ${gap.abs()} XP 🔥';
+                              }(),
                               style: TextStyle(
-                                color: _rivalXpGap > 0
+                                color: (_rivalXp - xp) > 0
                                     ? (isDark
                                         ? AppTheme.textSecondaryDark
                                         : AppTheme.textSecondaryLight)
                                     : AppTheme.success,
                                 fontWeight:
-                                    _rivalXpGap <= 0 ? FontWeight.w600 : null,
+                                    (_rivalXp - xp) <= 0 ? FontWeight.w600 : null,
                                 fontSize: 13,
                               ),
                             ),
