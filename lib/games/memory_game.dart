@@ -453,64 +453,60 @@ class _MemoryCardWidgetState extends State<_MemoryCardWidget>
         : const Color(0xFFFFB74D); // Orange for Uzbek
     final flag = card.isEnglish ? '🇬🇧' : '🇺🇿';
 
-    return Transform(
-      alignment: Alignment.center,
-      transform: Matrix4.identity()..rotateY(pi), // counter-flip text
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: widget.isDark
-              ? AppTheme.darkGlassGradient
-              : AppTheme.lightGlassGradient,
-          borderRadius: AppTheme.borderRadiusMd,
-          border: Border.all(
-            color: isMatched
-                ? AppTheme.success.withValues(alpha: 0.4)
-                : accentColor.withValues(alpha: 0.3),
-            width: 2,
-          ),
-          boxShadow: isMatched
-              ? [
-                  BoxShadow(
-                    color: AppTheme.success.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : AppTheme.shadowSoft,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: widget.isDark
+            ? AppTheme.darkGlassGradient
+            : AppTheme.lightGlassGradient,
+        borderRadius: AppTheme.borderRadiusMd,
+        border: Border.all(
+          color: isMatched
+              ? AppTheme.success.withValues(alpha: 0.4)
+              : accentColor.withValues(alpha: 0.3),
+          width: 2,
         ),
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(flag, style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 6),
-            Flexible(
-              child: Text(
-                card.text,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  color: isMatched
-                      ? AppTheme.success
-                      : (widget.isDark
-                          ? Colors.white
-                          : const Color(0xFF1A1D3A)),
+        boxShadow: isMatched
+            ? [
+                BoxShadow(
+                  color: AppTheme.success.withValues(alpha: 0.2),
+                  blurRadius: 12,
+                  spreadRadius: 1,
                 ),
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                maxLines: 3,
+              ]
+            : AppTheme.shadowSoft,
+      ),
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(flag, style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 6),
+          Flexible(
+            child: Text(
+              card.text,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: isMatched
+                    ? AppTheme.success
+                    : (widget.isDark
+                        ? Colors.white
+                        : const Color(0xFF1A1D3A)),
               ),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 3,
             ),
-            if (isMatched) ...[
-              const SizedBox(height: 4),
-              Icon(
-                Icons.check_circle_rounded,
-                size: 18,
-                color: AppTheme.success.withValues(alpha: 0.7),
-              ),
-            ],
+          ),
+          if (isMatched) ...[
+            const SizedBox(height: 4),
+            Icon(
+              Icons.check_circle_rounded,
+              size: 18,
+              color: AppTheme.success.withValues(alpha: 0.7),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

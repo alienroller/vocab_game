@@ -16,8 +16,15 @@ mixin GameStreakMixin<T extends ConsumerStatefulWidget>
     final profile = ref.read(profileProvider);
     if (profile == null) return;
 
+    final oldStreak = profile.streakDays;
+    final oldDate = profile.lastPlayedDate;
+
     final incremented = StreakService.checkAndUpdateStreak(profile);
-    if (incremented) {
+
+    // Persist whenever the profile was actually modified
+    final changed =
+        profile.streakDays != oldStreak || profile.lastPlayedDate != oldDate;
+    if (changed) {
       // Persist to Hive
       final box = Hive.box('userProfile');
       box.put('streakDays', profile.streakDays);
@@ -26,8 +33,10 @@ mixin GameStreakMixin<T extends ConsumerStatefulWidget>
             profile.streakDays,
             profile.lastPlayedDate ?? '',
           );
+    }
 
-      // Show milestone celebration if applicable
+    // Show milestone celebration if the streak continued
+    if (incremented) {
       final milestone = StreakService.milestoneMessage(profile.streakDays);
       if (milestone != null && mounted) {
         Future.delayed(const Duration(milliseconds: 500), () {

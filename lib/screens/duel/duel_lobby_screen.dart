@@ -57,7 +57,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   }
 
   void _startPolling() {
-    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) _loadData();
     });
   }
@@ -99,10 +99,39 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
 
       if (mounted) {
         final hadInvites = _incomingInvites.length;
+
+        // Auto-cancel duels sent by me that are older than 60 seconds
+        final pending = List<Map<String, dynamic>>.from(pendingData);
+        final now = DateTime.now();
+        final expired = <Map<String, dynamic>>[];
+        final active = <Map<String, dynamic>>[];
+        for (final duel in pending) {
+          final createdAt = DateTime.tryParse(
+              duel['created_at']?.toString() ?? '');
+          if (createdAt != null &&
+              now.difference(createdAt).inSeconds > 60) {
+            expired.add(duel);
+          } else {
+            active.add(duel);
+          }
+        }
+
+        // Cancel expired duels in the background
+        for (final duel in expired) {
+          DuelService.declineDuel(duel['id'] as String);
+        }
+
         setState(() {
           _classmates = List<Map<String, dynamic>>.from(classmatesData);
-          _pendingDuels = List<Map<String, dynamic>>.from(pendingData);
-          _incomingInvites = List<Map<String, dynamic>>.from(invitesData);
+          _pendingDuels = active;
+          _incomingInvites = List<Map<String, dynamic>>.from(invitesData)
+              .where((d) {
+            final createdAt = DateTime.tryParse(
+                d['created_at']?.toString() ?? '');
+            // Also hide expired incoming invites (>60s)
+            return createdAt == null ||
+                now.difference(createdAt).inSeconds <= 60;
+          }).toList();
           _loading = false;
         });
 
@@ -184,7 +213,6 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final hasClass = classCode != null && classCode.isNotEmpty;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Duel Arena',
             style: TextStyle(fontWeight: FontWeight.w800)),

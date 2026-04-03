@@ -57,6 +57,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   Future<void> createProfile({
     required String id,
     required String username,
+    bool isTeacher = false,
   }) async {
     final box = Hive.box('userProfile');
     await box.put('id', id);
@@ -68,7 +69,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('totalWordsAnswered', 0);
     await box.put('totalCorrect', 0);
     await box.put('hasOnboarded', true);
-    await box.put('isTeacher', false);
+    await box.put('isTeacher', isTeacher);
 
     state = UserProfile()
       ..id = id
@@ -80,7 +81,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..totalWordsAnswered = 0
       ..totalCorrect = 0
       ..hasOnboarded = true
-      ..isTeacher = false;
+      ..isTeacher = isTeacher;
   }
 
   /// Creates a clone of the current profile with all fields copied.

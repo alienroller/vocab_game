@@ -55,7 +55,6 @@ class _DuelHistoryScreenState extends State<DuelHistoryScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Duel History',
             style: TextStyle(fontWeight: FontWeight.w800)),

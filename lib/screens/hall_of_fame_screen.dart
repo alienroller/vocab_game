@@ -54,7 +54,6 @@ class _HallOfFameScreenState extends State<HallOfFameScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Hall of Fame',
             style: TextStyle(fontWeight: FontWeight.w800)),
@@ -99,8 +98,7 @@ class _HallOfFameScreenState extends State<HallOfFameScreen> {
                     ),
                   )
                 : ListView(
-                    padding: EdgeInsets.fromLTRB(
-                        16, MediaQuery.of(context).padding.top + kToolbarHeight + 8, 16, 24),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     children: _grouped.entries.map((entry) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

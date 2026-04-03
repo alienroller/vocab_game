@@ -34,6 +34,10 @@ void main() async {
   // Initialize local notifications (streak warnings, duel alerts)
   await NotificationService.initialize();
 
+  // Request notification permission (safe to call on every start—OS won't
+  // re-prompt if already granted. Covers the recovered-account case.)
+  await NotificationService.requestPermission();
+
   // Drain any pending offline syncs
   await SyncService.drainSyncQueue();
 

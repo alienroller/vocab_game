@@ -22,15 +22,31 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   String? _rivalName;
   int _rivalXpGap = 0;
+  int _lastXp = -1; // track XP changes to know when to re-fetch rival
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchRival();
     _checkStreakMilestone();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchRival(); // re-fetch rival when returning from a game
+    }
   }
 
   void _checkStreakMilestone() {
@@ -265,6 +281,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final profileBox = Hive.box('userProfile');
     final xp = profile?.xp ?? profileBox.get('xp', defaultValue: 0) as int;
+
+    // Re-fetch rival whenever XP changes (reactive via ref.watch above)
+    if (xp != _lastXp && _lastXp != -1) {
+      Future.microtask(() => _fetchRival());
+    }
+    _lastXp = xp;
+
     final streakDays = profile?.streakDays ??
         profileBox.get('streakDays', defaultValue: 0) as int;
     final username = profile?.username ??

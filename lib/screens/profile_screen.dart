@@ -204,12 +204,22 @@ class ProfileScreen extends ConsumerWidget {
               onTap: () => _showJoinClassDialog(context, ref),
             ),
             const SizedBox(height: 8),
-            _ActionTile(
-              icon: Icons.school,
-              label: 'Create a Class',
-              subtitle: 'For teachers — get a code for your students',
-              onTap: () => _showCreateClassDialog(context, ref, username),
-            ),
+            // Show "Exit Class" for students in a class, "Create a Class" for teachers/no class
+            if (classCode != null && classCode.isNotEmpty && !isTeacher)
+              _ActionTile(
+                icon: Icons.logout_rounded,
+                label: 'Exit Class',
+                subtitle: 'Leave your current class',
+                isDestructive: true,
+                onTap: () => _showExitClassDialog(context, ref),
+              )
+            else
+              _ActionTile(
+                icon: Icons.school,
+                label: 'Create a Class',
+                subtitle: 'For teachers — get a code for your students',
+                onTap: () => _showCreateClassDialog(context, ref, username),
+              ),
             // Teacher Dashboard link (only visible for teachers with a class)
             if (isTeacher && classCode != null && classCode.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -271,6 +281,49 @@ class ProfileScreen extends ConsumerWidget {
             }
           }
         },
+      ),
+    );
+  }
+  // ─── Exit Class Dialog ─────────────────────────────────────────────
+
+  void _showExitClassDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Exit Class?'),
+        content: const Text(
+          'Are you sure you want to leave this class?\n\n'
+          'You can rejoin later with the same code.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await ref.read(profileProvider.notifier).setClassCode(null);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Left the class.')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to leave class: $e')),
+                  );
+                }
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Exit Class'),
+          ),
+        ],
       ),
     );
   }

@@ -188,7 +188,6 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Leaderboard',
             style: TextStyle(fontWeight: FontWeight.w800)),

@@ -29,6 +29,7 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
   bool _checking = false;
   bool? _isAvailable;
   bool _submitting = false;
+  bool _isTeacher = false;
 
   @override
   void dispose() {
@@ -75,12 +76,13 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
         'xp': 0,
         'level': 1,
         'streak_days': 0,
+        'is_teacher': _isTeacher,
       });
 
       // Create local profile
       await ref
           .read(profileProvider.notifier)
-          .createProfile(id: userId, username: username);
+          .createProfile(id: userId, username: username, isTeacher: _isTeacher);
 
       // Request notification permission (iOS + Android 13+)
       await NotificationService.requestPermission();
@@ -185,6 +187,96 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
                           color: AppTheme.error,
                           fontWeight: FontWeight.w600),
                     ),
+                  const SizedBox(height: 24),
+                  // Teacher toggle
+                  GestureDetector(
+                    onTap: () => setState(() => _isTeacher = !_isTeacher),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _isTeacher
+                            ? AppTheme.violet.withValues(alpha: isDark ? 0.15 : 0.08)
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: AppTheme.borderRadiusMd,
+                        border: Border.all(
+                          color: _isTeacher
+                              ? AppTheme.violet.withValues(alpha: 0.4)
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.black.withValues(alpha: 0.06)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text('🎓', style: TextStyle(fontSize: 20)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'I am a teacher',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    color: _isTeacher
+                                        ? AppTheme.violet
+                                        : (isDark ? Colors.white70 : Colors.black54),
+                                  ),
+                                ),
+                                Text(
+                                  'Enable to create classes for your students',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: 44,
+                            height: 26,
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(13),
+                              color: _isTeacher
+                                  ? AppTheme.violet
+                                  : (isDark
+                                      ? Colors.white.withValues(alpha: 0.12)
+                                      : Colors.black.withValues(alpha: 0.1)),
+                            ),
+                            child: AnimatedAlign(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOutCubic,
+                              alignment: _isTeacher
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.15),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const Spacer(),
                   SizedBox(
                     width: double.infinity,
