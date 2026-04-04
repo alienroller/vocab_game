@@ -18,7 +18,7 @@ class WordSessionService {
   ///   3. Mastered words (only as filler if fewer unmastered words remain)
   static Future<List<Map<String, dynamic>>> selectSessionWords({
     required String unitId,
-    int count = 10,
+    int? count,
   }) async {
     final profileBox = Hive.box('userProfile');
     final userId = profileBox.get('id') as String?;
@@ -26,14 +26,24 @@ class WordSessionService {
 
     try {
       // Fetch all words in this unit
-      final allWords = await _supabase
+      final allWordsRaw = await _supabase
           .from('words')
           .select(
               'id, word, translation, example_sentence, word_type, difficulty')
           .eq('unit_id', unitId)
           .order('word_number');
 
-      if ((allWords as List).isEmpty) return [];
+      if ((allWordsRaw as List).isEmpty) return [];
+
+      // Deduplicate by word in case of dirty database seeds (Bug 2 fix)
+      final uniqueMap = <String, Map<String, dynamic>>{};
+      for (final w in allWordsRaw) {
+        final text = (w['word'] as String).toLowerCase().trim();
+        if (!uniqueMap.containsKey(text)) {
+          uniqueMap[text] = Map<String, dynamic>.from(w);
+        }
+      }
+      final allWords = uniqueMap.values.toList();
 
       final wordIds = allWords.map((w) => w['id'] as String).toList();
 
@@ -81,18 +91,20 @@ class WordSessionService {
         return aDate.compareTo(bDate);
       });
 
+      final limit = count ?? allWords.length;
+
       // Build final selection: neverSeen → inProgress → mastered (filler)
       final selected = <Map<String, dynamic>>[];
-      selected.addAll(neverSeen.take(count));
-      if (selected.length < count) {
-        selected.addAll(inProgress.take(count - selected.length));
+      selected.addAll(neverSeen.take(limit));
+      if (selected.length < limit) {
+        selected.addAll(inProgress.take(limit - selected.length));
       }
-      if (selected.length < count) {
-        selected.addAll(mastered.take(count - selected.length));
+      if (selected.length < limit) {
+        selected.addAll(mastered.take(limit - selected.length));
       }
 
       // Remove internal _mastery field before returning
-      return selected.take(count).map((w) {
+      return selected.take(limit).map((w) {
         final clean = Map<String, dynamic>.from(w);
         clean.remove('_mastery');
         return clean;

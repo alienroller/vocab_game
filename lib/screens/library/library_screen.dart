@@ -291,7 +291,7 @@ class UnitListScreen extends StatefulWidget {
 class _UnitListScreenState extends State<UnitListScreen> {
   List<Map<String, dynamic>> _units = [];
   bool _loading = true;
-  bool _launching = false;
+  String? _launchingUnitId;
 
   @override
   void initState() {
@@ -321,8 +321,9 @@ class _UnitListScreenState extends State<UnitListScreen> {
   }
 
   Future<void> _playUnit(Map<String, dynamic> unit) async {
-    if (_launching) return;
-    setState(() => _launching = true);
+    final unitId = unit['id'] as String;
+    if (_launchingUnitId != null) return;
+    setState(() => _launchingUnitId = unitId);
 
     try {
       // Load the best 10 words for this unit via spaced repetition
@@ -368,7 +369,7 @@ class _UnitListScreenState extends State<UnitListScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _launching = false);
+      if (mounted) setState(() => _launchingUnitId = null);
     }
   }
 
@@ -468,13 +469,13 @@ class _UnitListScreenState extends State<UnitListScreen> {
                                 ],
                               ),
                               child: FilledButton(
-                                onPressed: _launching ? null : () => _playUnit(unit),
+                                onPressed: _launchingUnitId != null ? null : () => _playUnit(unit),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: Colors.transparent,
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 16, vertical: 8),
                                 ),
-                                child: _launching
+                                child: _launchingUnitId == unit['id']
                                     ? const SizedBox(
                                         width: 20,
                                         height: 20,
@@ -1075,6 +1076,8 @@ class _UnitResultScreen extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
+                
+                // Back to Game (Pops to game selection)
                 SizedBox(
                   width: double.infinity,
                   height: 56,
@@ -1084,17 +1087,57 @@ class _UnitResultScreen extends StatelessWidget {
                       borderRadius: AppTheme.borderRadiusMd,
                       boxShadow: AppTheme.shadowGlow(AppTheme.violet),
                     ),
-                    child: FilledButton(
-                      onPressed: () => context.go('/home'),
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.replay_rounded),
+                      label: const Text('Back to Game',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.transparent,
                         shape: RoundedRectangleBorder(
                           borderRadius: AppTheme.borderRadiusMd,
                         ),
                       ),
-                      child: const Text('Back to Home',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // More Units (Pops back twice to UnitListScreen)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    // Pop this result screen, and the game selection screen
+                    Navigator.of(context)..pop()..pop();
+                  },
+                  icon: const Icon(Icons.list_rounded),
+                  label: const Text('More Units',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    side: BorderSide(
+                      color: isDark 
+                          ? Colors.white.withValues(alpha: 0.2) 
+                          : Colors.black.withValues(alpha: 0.1),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Back to Home (Clears library stack and goes to home)
+                TextButton.icon(
+                  onPressed: () {
+                    // Clear the library navigator stack before switching to Home branch
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                    context.go('/home');
+                  },
+                  icon: const Icon(Icons.home_rounded),
+                  label: const Text('Back to Home',
+                      style: TextStyle(fontSize: 16)),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    foregroundColor: isDark 
+                        ? AppTheme.textSecondaryDark 
+                        : AppTheme.textSecondaryLight,
                   ),
                 ),
               ],
