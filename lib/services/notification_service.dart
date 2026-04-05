@@ -1,22 +1,30 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/standalone.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 /// Local notification service for streak warnings, duel challenges,
 /// and leaderboard rivalry alerts.
 ///
 /// All notifications are local (device-only) and do not require a server.
 class NotificationService {
+  NotificationService._();
+
+  static final NotificationService instance = NotificationService._();
+
   static final _plugin = FlutterLocalNotificationsPlugin();
 
   /// Initialize the notification plugin. Call once in main().
   static Future<void> initialize() async {
-    const android =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings();
-    const settings =
-        InitializationSettings(android: android, iOS: ios);
+    const settings = InitializationSettings(android: android, iOS: ios);
 
-    await _plugin.initialize(settings);
+    await _plugin.initialize(
+      settings: settings,
+      onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse: _onDidReceiveNotificationResponse,
+    );
   }
 
   /// Request notification permissions on iOS and Android 13+.
@@ -24,14 +32,12 @@ class NotificationService {
   static Future<void> requestPermission() async {
     // Android 13+
     await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
     // iOS
     await _plugin
-        .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
@@ -45,10 +51,10 @@ class NotificationService {
 
     try {
       await _plugin.show(
-        0,
-        '🔥 Your $streakDays-day streak is in danger!',
-        'Open the app and play to keep your streak alive.',
-        const NotificationDetails(
+        id: 0,
+        title: '🔥 Your $streakDays-day streak is in danger!',
+        body: 'Open the app and play to keep your streak alive.',
+        notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'streak',
             'Streak Alerts',
@@ -66,7 +72,7 @@ class NotificationService {
 
   /// Cancel the streak warning (call after the user plays today).
   static Future<void> cancelStreakWarning() async {
-    await _plugin.cancel(0);
+    await _plugin.cancel(id: 0);
   }
 
   // ─── Duel Challenge ─────────────────────────────────────────────
@@ -75,10 +81,10 @@ class NotificationService {
   static Future<void> notifyDuelChallenge(String challengerUsername) async {
     try {
       await _plugin.show(
-        2,
-        '⚔️ $challengerUsername challenged you!',
-        'Accept the duel before it expires.',
-        const NotificationDetails(
+        id: 2,
+        title: '⚔️ $challengerUsername challenged you!',
+        body: 'Accept the duel before it expires.',
+        notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'duels',
             'Duel Challenges',
@@ -100,10 +106,10 @@ class NotificationService {
   static Future<void> notifyOvertaken(String byUsername) async {
     try {
       await _plugin.show(
-        1,
-        '⚡ $byUsername just passed you!',
-        'Open the game and reclaim your rank.',
-        const NotificationDetails(
+        id: 1,
+        title: '⚡ $byUsername just passed you!',
+        body: 'Open the game and reclaim your rank.',
+        notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'rivalry',
             'Rivalry Alerts',
@@ -121,5 +127,81 @@ class NotificationService {
   /// Cancel all pending notifications.
   static Future<void> cancelAll() async {
     await _plugin.cancelAll();
+  }
+
+  Future<void> showNotification({int id = 404, String? title, String? body}) async {
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        'notification',
+        'Vocab Game Notification',
+        importance: Importance.max,
+      );
+
+      final iosDetails = const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final notificationDetails = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+      String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
+
+      await _plugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: notificationDetails,
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('notification failed: $e');
+    }
+  }
+
+  static void _onDidReceiveNotificationResponse(NotificationResponse details) {
+    String? payload = details.payload;
+  }
+
+  static Future<void> schedule({
+    int id = 404,
+    required String title,
+    required String body,
+    TZDateTime? date,
+    Duration delay = const Duration(days: 1),
+    DateTimeComponents? repeat,
+  }) async {
+    final scheduledDate = date ?? tz.TZDateTime.now(tz.local).add(delay);
+
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'notification',
+        'Vocab Game Notification',
+        importance: Importance.max,
+        priority: Priority.high,
+      ),
+      iOS: const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+
+    String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
+
+    await _plugin.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: scheduledDate,
+      notificationDetails: details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: repeat,
+      payload: payload,
+    );
+  }
+
+  static Future<void> sendNotificationToOtherPlayer()async{
+    //TODO call supabase edge function. 
   }
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "911681264571",
+    "project_id": "vocab-game-wairer",
+    "storage_bucket": "vocab-game-wairer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:911681264571:android:4f62e9f5b5f4cb87c1429e",
+        "android_client_info": {
+          "package_name": "com.vocabgame.vocab_game"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAi41G12BfeT1AIMd2biBTeLJ_E1lZ4Oxc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

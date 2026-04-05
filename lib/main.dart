@@ -1,9 +1,14 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:vocab_game/config/environment_constants.dart';
+import 'package:vocab_game/firebase_options.dart';
+import 'package:vocab_game/services/storage_provider.dart';
 
 import 'models/user_profile.dart';
 import 'router.dart';
@@ -25,11 +30,14 @@ void main() async {
   // Open offline sync queue box
   await Hive.openBox('sync_queue');
 
+  tz.initializeTimeZones();
+
+  await LocalStorageProvider.init();
+
   // Initialize Supabase
-  await Supabase.initialize(
-    url: EnvironmentConstants.url,
-    anonKey: EnvironmentConstants.anonKey,
-  );
+  await Supabase.initialize(url: EnvironmentConstants.url, anonKey: EnvironmentConstants.anonKey);
+
+  if (!kIsWeb) await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Initialize local notifications (streak warnings, duel alerts)
   await NotificationService.initialize();
@@ -57,21 +65,19 @@ void _checkStreakOnOpen() {
   if (id == null) return; // Not onboarded yet
 
   // Build a profile to check streak
-  final profile = UserProfile()
-    ..id = id
-    ..username = profileBox.get('username', defaultValue: '') as String
-    ..xp = profileBox.get('xp', defaultValue: 0) as int
-    ..level = profileBox.get('level', defaultValue: 1) as int
-    ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
-    ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
-    ..classCode = profileBox.get('classCode') as String?
-    ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
-    ..totalWordsAnswered =
-        profileBox.get('totalWordsAnswered', defaultValue: 0) as int
-    ..totalCorrect =
-        profileBox.get('totalCorrect', defaultValue: 0) as int
-    ..isTeacher =
-        profileBox.get('isTeacher', defaultValue: false) as bool;
+  final profile =
+      UserProfile()
+        ..id = id
+        ..username = profileBox.get('username', defaultValue: '') as String
+        ..xp = profileBox.get('xp', defaultValue: 0) as int
+        ..level = profileBox.get('level', defaultValue: 1) as int
+        ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
+        ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
+        ..classCode = profileBox.get('classCode') as String?
+        ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
+        ..totalWordsAnswered = profileBox.get('totalWordsAnswered', defaultValue: 0) as int
+        ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
+        ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
 
   // Check if streak was broken while app was closed
   StreakService.checkStreakOnAppOpen(profile);
@@ -103,9 +109,7 @@ void _subscribeToDuelChallenges(String myId) {
             value: myId,
           ),
           callback: (payload) {
-            final challenger =
-                payload.newRecord['challenger_username'] as String? ??
-                    'Someone';
+            final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
             NotificationService.notifyDuelChallenge(challenger);
           },
         )
@@ -119,7 +123,7 @@ class VocabGameApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'VocabGame Builder',
+      title: 'Vocab Game',
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
       theme: AppTheme.lightTheme,
