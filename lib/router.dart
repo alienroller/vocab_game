@@ -24,6 +24,7 @@ import 'screens/onboarding/username_screen.dart';
 import 'screens/onboarding/welcome_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/result_screen.dart';
+import 'screens/search_screen.dart';
 import 'screens/teacher_dashboard_screen.dart';
 
 /// Smooth fade + slide page transition for all routes.
@@ -58,6 +59,7 @@ CustomTransitionPage<void> _buildPage(Widget child, GoRouterState state) {
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _homeNavKey = GlobalKey<NavigatorState>(debugLabel: 'home');
 final _libraryNavKey = GlobalKey<NavigatorState>(debugLabel: 'library');
+final _searchNavKey = GlobalKey<NavigatorState>(debugLabel: 'search');
 final _duelsNavKey = GlobalKey<NavigatorState>(debugLabel: 'duels');
 final _profileNavKey = GlobalKey<NavigatorState>(debugLabel: 'profile');
 
@@ -162,6 +164,18 @@ final GoRouter appRouter = GoRouter(
               path: '/library',
               pageBuilder: (_, state) =>
                   _buildPage(const LibraryScreen(), state),
+            ),
+          ],
+        ),
+
+        // Tab 2: Search
+        StatefulShellBranch(
+          navigatorKey: _searchNavKey,
+          routes: [
+            GoRoute(
+              path: '/search',
+              pageBuilder: (_, state) =>
+                  _buildPage(const SearchScreen(), state),
             ),
           ],
         ),

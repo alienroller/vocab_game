@@ -63,7 +63,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             showDialog(
               context: context,
               barrierDismissible: false,
-              builder: (_) => _StreakMilestoneDialog(milestone: milestone),
+              builder: (_) => _StreakMilestoneDialog(
+                milestone: milestone,
+                currentStreak: streakDays,
+              ),
             );
           }
         });
@@ -124,130 +127,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } catch (_) {}
   }
 
-  void _showAddWordSheet() {
-    final englishCtrl = TextEditingController();
-    final uzbekCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        final isDark = theme.brightness == Brightness.dark;
-        return Padding(
-          padding: EdgeInsets.only(
-              bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF1E2140)
-                  : Colors.white,
-              borderRadius: AppTheme.borderRadiusLg,
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.06),
-              ),
-              boxShadow: AppTheme.shadowMedium,
-            ),
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          gradient: AppTheme.primaryGradient,
-                          borderRadius: AppTheme.borderRadiusSm,
-                        ),
-                        child: const Icon(Icons.add_rounded,
-                            color: Colors.white, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Add New Word',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: englishCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'English word',
-                      prefixIcon: Padding(
-                        padding: EdgeInsets.only(left: 12, right: 8),
-                        child: Text('🇬🇧', style: TextStyle(fontSize: 18)),
-                      ),
-                      prefixIconConstraints:
-                          BoxConstraints(minWidth: 0, minHeight: 0),
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Required' : null,
-                    autofocus: true,
-                    textInputAction: TextInputAction.next,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: uzbekCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Uzbek translation',
-                      prefixIcon: Padding(
-                        padding: EdgeInsets.only(left: 12, right: 8),
-                        child: Text('🇺🇿', style: TextStyle(fontSize: 18)),
-                      ),
-                      prefixIconConstraints:
-                          BoxConstraints(minWidth: 0, minHeight: 0),
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Required' : null,
-                    onFieldSubmitted: (_) {
-                      if (formKey.currentState!.validate()) {
-                        ref.read(vocabProvider.notifier).addVocab(
-                              englishCtrl.text,
-                              uzbekCtrl.text,
-                            );
-                        Navigator.pop(ctx);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: FilledButton(
-                      onPressed: () {
-                        if (formKey.currentState!.validate()) {
-                          ref.read(vocabProvider.notifier).addVocab(
-                                englishCtrl.text,
-                                uzbekCtrl.text,
-                              );
-                          Navigator.pop(ctx);
-                        }
-                      },
-                      child: const Text('Add Word',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 16)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   void _showEditDialog(Vocab vocab) {
     final engCtrl = TextEditingController(text: vocab.english);
@@ -636,7 +515,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 )),
                             const SizedBox(height: 6),
                             Text(
-                              'Tap + to add your first words!',
+                              'Tap the Search tab to add your first words!',
                               style: TextStyle(
                                 color: isDark
                                     ? AppTheme.textSecondaryDark
@@ -709,7 +588,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddWordSheet,
+        onPressed: () => context.go('/search'),
         backgroundColor: AppTheme.violet,
         foregroundColor: Colors.white,
         elevation: 8,
@@ -771,7 +650,11 @@ class _QuickChip extends StatelessWidget {
 
 class _StreakMilestoneDialog extends StatefulWidget {
   final int milestone;
-  const _StreakMilestoneDialog({required this.milestone});
+  final int currentStreak;
+  const _StreakMilestoneDialog({
+    required this.milestone,
+    required this.currentStreak,
+  });
 
   @override
   State<_StreakMilestoneDialog> createState() => _StreakMilestoneDialogState();
@@ -811,11 +694,11 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (emoji, title, message) = switch (widget.milestone) {
-      3 => ('🔥', 'You\'re on a roll!', '3-day streak! Keep it up!'),
+      3 => ('🔥', 'You\'re on a roll!', '${widget.currentStreak}-day streak! Keep it up!'),
       7 => ('💪', 'One week strong!', 'You\'re a habit now. Incredible!'),
       14 => ('🏆', 'Two weeks!', 'You\'re in the top players. Amazing!'),
       30 => ('👑', 'One month!', 'You are LEGENDARY. Unstoppable!'),
-      _ => ('🔥', 'Streak milestone!', '${widget.milestone}-day streak!'),
+      _ => ('🔥', 'Streak milestone!', '${widget.currentStreak}-day streak!'),
     };
 
     return FadeTransition(
@@ -863,7 +746,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
                   ),
                 ),
                 child: Text(
-                  '🔥 ${widget.milestone}-day streak',
+                  '🔥 ${widget.currentStreak}-day streak',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
