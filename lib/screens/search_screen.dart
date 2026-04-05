@@ -121,8 +121,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
       if (memResponse.statusCode == 200) {
         final data = jsonDecode(memResponse.body);
-        final translatedText =
-            data['responseData']?['translatedText']?.toString();
+        final translatedText = data['responseData']?['translatedText']
+            ?.toString()
+            .replaceAll('&#39;', "'")
+            .replaceAll('&quot;', '"')
+            .replaceAll('&amp;', '&');
 
         if (translatedText != null && translatedText.isNotEmpty) {
           // Check if MyMemory just returned the english phrase unchanged
