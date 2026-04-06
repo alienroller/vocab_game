@@ -37,12 +37,35 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
   late String _myId;
   RealtimeChannel? _channel;
 
+  bool _isStarted = false;
+  int _countdown = 3;
+  bool _isFinishedLocally = false;
+  Timer? _countdownTimer;
+
   @override
   void initState() {
     super.initState();
     _myId = Hive.box('userProfile').get('id') as String;
     _generateOptions();
     _subscribeToScores();
+    _startCountdown();
+  }
+
+  void _startCountdown() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_countdown > 1) {
+          _countdown--;
+        } else {
+          _isStarted = true;
+          timer.cancel();
+        }
+      });
+    });
   }
 
   void _subscribeToScores() {
@@ -60,15 +83,19 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
           callback: (payload) {
             final newData = payload.newRecord;
             if (mounted) {
-              setState(() {
-                if (widget.isChallenger) {
-                  _opponentScore =
-                      (newData['opponent_score'] as int?) ?? _opponentScore;
-                } else {
-                  _opponentScore =
-                      (newData['challenger_score'] as int?) ?? _opponentScore;
-                }
-              });
+              if (newData['status'] == 'finished' && !_isFinishedLocally) {
+                _forceEndDuel();
+              } else {
+                setState(() {
+                  if (widget.isChallenger) {
+                    _opponentScore =
+                        (newData['opponent_score'] as int?) ?? _opponentScore;
+                  } else {
+                    _opponentScore =
+                        (newData['challenger_score'] as int?) ?? _opponentScore;
+                  }
+                });
+              }
             }
           },
         )
@@ -95,7 +122,7 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
   }
 
   void _checkAnswer(int index) {
-    if (_answered) return;
+    if (_answered || !_isStarted || _isFinishedLocally) return;
 
     final selected = _currentOptions[index];
     final correct =
@@ -105,7 +132,11 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
     setState(() {
       _answered = true;
       _selectedOption = index;
-      if (isCorrect) _myScore++;
+      if (isCorrect) {
+        _myScore++;
+      } else {
+        if (_myScore > 0) _myScore--;
+      }
     });
 
     // Update score in real-time
@@ -117,7 +148,7 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
     );
 
     Future.delayed(const Duration(milliseconds: 1200), () {
-      if (!mounted) return;
+      if (!mounted || _isFinishedLocally) return;
 
       if (_currentIndex < widget.words.length - 1) {
         setState(() {
@@ -130,7 +161,49 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
     });
   }
 
+  Future<void> _forceEndDuel() async {
+    setState(() => _isFinishedLocally = true);
+
+    // Wait slightly to let the remote update settle
+    // because whoever marked it 'finished' also sets the winner_id
+    // and calculates XP.
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    final duelData = await Supabase.instance.client
+        .from('duels')
+        .select()
+        .eq('id', widget.duelId)
+        .single();
+
+    if (!mounted) return;
+
+    final myXpGain = widget.isChallenger
+        ? (duelData['challenger_xp_gain'] as int?) ?? 0
+        : (duelData['opponent_xp_gain'] as int?) ?? 0;
+
+    final winnerId = duelData['winner_id'] as String?;
+    final didWin = winnerId == _myId;
+    final isDraw = winnerId == null;
+
+    final opponentName = widget.isChallenger
+        ? duelData['opponent_username'] as String? ?? '???'
+        : duelData['challenger_username'] as String? ?? '???';
+
+    context.pushReplacement('/duels/results', extra: {
+      'myScore': _myScore,
+      'opponentScore': _opponentScore,
+      'totalWords': widget.words.length,
+      'myXpGain': myXpGain,
+      'didWin': didWin,
+      'isDraw': isDraw,
+      'opponentUsername': opponentName,
+    });
+  }
+
   Future<void> _finishDuel() async {
+    if (_isFinishedLocally) return;
+    setState(() => _isFinishedLocally = true);
+
     final challengerId = widget.isChallenger
         ? _myId
         : (await Supabase.instance.client
@@ -208,7 +281,9 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
         ),
         child: SafeArea(
-        child: Column(
+        child: !_isStarted
+            ? _buildCountdown(isDark)
+            : Column(
         children: [
           // Score bar — glass
           Container(
@@ -404,8 +479,43 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
     );
   }
 
+  Widget _buildCountdown(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            'Ready...',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+            ),
+          ),
+          const SizedBox(height: 32),
+          Container(
+            padding: const EdgeInsets.all(48),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppTheme.violet.withValues(alpha: 0.15),
+            ),
+            child: Text(
+              '$_countdown',
+              style: const TextStyle(
+                fontSize: 80,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.violet,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _channel?.unsubscribe();
     super.dispose();
   }
