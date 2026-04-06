@@ -1,13 +1,32 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../providers/vocab_provider.dart';
+import '../services/dictionary_service.dart';
 import '../theme/app_theme.dart';
+
+String transliterateCyrillicToLatin(String text) {
+  const Map<String, String> map = {
+    'А': 'A', 'а': 'a', 'Б': 'B', 'б': 'b', 'В': 'V', 'в': 'v', 'Г': 'G', 'г': 'g', 
+    'Д': 'D', 'д': 'd', 'Е': 'E', 'е': 'e', 'Ё': 'Yo', 'ё': 'yo', 'Ж': 'J', 'ж': 'j', 
+    'З': 'Z', 'з': 'z', 'И': 'I', 'и': 'i', 'Й': 'Y', 'й': 'y', 'К': 'K', 'к': 'k', 
+    'Л': 'L', 'л': 'l', 'М': 'M', 'м': 'm', 'Н': 'N', 'н': 'n', 'О': 'O', 'о': 'o', 
+    'П': 'P', 'п': 'p', 'Р': 'R', 'р': 'r', 'С': 'S', 'с': 's', 'Т': 'T', 'т': 't', 
+    'У': 'U', 'у': 'u', 'Ф': 'F', 'ф': 'f', 'Х': 'X', 'х': 'x', 'Ц': 'Ts', 'ц': 'ts', 
+    'Ч': 'Ch', 'ч': 'ch', 'Ш': 'Sh', 'ш': 'sh', 'Щ': 'Sh', 'щ': 'sh', 
+    'Ъ': '\'', 'ъ': '\'', 'Ы': 'I', 'ы': 'i', 'Ь': '', 'ь': '', 'Э': 'E', 'э': 'e', 
+    'Ю': 'Yu', 'ю': 'yu', 'Я': 'Ya', 'я': 'ya',
+    'Ў': 'O\'', 'ў': 'o\'', 'Қ': 'Q', 'қ': 'q', 'Ғ': 'G\'', 'ғ': 'g\'', 'Ҳ': 'H', 'ҳ': 'h'
+  };
+
+  String result = text;
+  map.forEach((c, l) {
+    result = result.replaceAll(c, l);
+  });
+  return result;
+}
 
 /// Search Screen that allows users to lookup English words and receive
 /// Uzbek translations from the MyMemory API, with options to add to their game.
@@ -71,105 +90,27 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
 
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      _performSearch(cleanQuery);
+      _performSearch(cleanQuery, isSubmit: false);
     });
   }
 
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(String query, {bool isSubmit = false}) async {
     if (!mounted) return;
 
     try {
-      // 1. Verify word existence using Free Dictionary API
-      // We check each word in the query (in case they type short phrases)
-      final words = query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-      final dictFutures = words.map((w) => http
-          .get(Uri.parse('https://api.dictionaryapi.dev/api/v2/entries/en/${Uri.encodeComponent(w)}'))
-          .timeout(const Duration(seconds: 5)));
-
-      // 2. Prepare Translation fetch
-      final memUri = Uri.parse(
-          'https://api.mymemory.translated.net/get?q=${Uri.encodeComponent(query)}&langpair=en|uz');
-      final memFuture = http.get(memUri).timeout(const Duration(seconds: 10));
-
-      final results = await Future.wait([
-        Future.wait(dictFutures),
-        memFuture,
-      ]);
-
+      final entry = await dictionaryService.lookup(query, allowFallback: isSubmit);
       if (!mounted) return;
 
-      final dictResponses = results[0] as List<http.Response>;
-      final memResponse = results[1] as http.Response;
-
-      // Check for dictionary 404s (typos)
-      bool hasTypo = false;
-      for (final resp in dictResponses) {
-        if (resp.statusCode == 404) {
-          hasTypo = true;
-          break;
-        }
-      }
-
-      if (hasTypo) {
+      if (entry != null && entry.uzbek.isNotEmpty) {
         setState(() {
           _isLoading = false;
-          _errorMsg = 'Word not recognized. Did you spell it correctly?';
-          _translatedText = null;
+          _translatedText = transliterateCyrillicToLatin(entry.uzbek).toLowerCase();
+          _errorMsg = null;
         });
-        return;
-      }
-
-      if (memResponse.statusCode == 200) {
-        final data = jsonDecode(memResponse.body);
-        final translatedText = data['responseData']?['translatedText']
-            ?.toString()
-            .replaceAll('&#39;', "'")
-            .replaceAll('&quot;', '"')
-            .replaceAll('&amp;', '&');
-
-        if (translatedText != null && translatedText.isNotEmpty) {
-          // Check if MyMemory just returned the english phrase unchanged
-          if (translatedText.toLowerCase() == query.toLowerCase()) {
-            setState(() {
-              _isLoading = false;
-              _errorMsg = 'Translation unavailable';
-              _translatedText = null;
-            });
-          } else {
-            setState(() {
-              _isLoading = false;
-              _translatedText = translatedText.toLowerCase();
-              _errorMsg = null;
-            });
-          }
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMsg = 'No translation found';
-            _translatedText = null;
-          });
-        }
       } else {
         setState(() {
           _isLoading = false;
-          _errorMsg = 'Error fetching translation';
-          _translatedText = null;
-        });
-      }
-    } on SocketException catch (_) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMsg = 'Check your connection';
-          _translatedText = null;
-        });
-      }
-    } on TimeoutException catch (_) {
-      if (mounted) {
-        // If dictionary timeouts, it might be safer to let it pass or say timed out.
-        setState(() {
-          _isLoading = false;
-          _errorMsg = 'Request timed out';
+          _errorMsg = isSubmit ? 'Word not found in dictionary' : 'Online search required';
           _translatedText = null;
         });
       }
@@ -177,7 +118,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMsg = 'Something went wrong';
+          _errorMsg = 'Library error: $e';
           _translatedText = null;
         });
       }
@@ -271,6 +212,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     controller: _searchCtrl,
                     focusNode: _focusNode,
                     onChanged: _onSearchChanged,
+                    onSubmitted: (val) {
+                      final cleanQuery = val.trim().toLowerCase();
+                      if (cleanQuery.length >= 2) {
+                        if (_debounce?.isActive ?? false) _debounce!.cancel();
+                        setState(() { _isLoading = true; _errorMsg = null; _translatedText = null; });
+                        _performSearch(cleanQuery, isSubmit: true);
+                      }
+                    },
                     textInputAction: TextInputAction.search,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                     decoration: InputDecoration(
@@ -336,24 +285,45 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       }
 
                       if (_errorMsg != null) {
+                        final isOnlineReq = _errorMsg == 'Online search required';
                         return Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                Icons.error_outline_rounded,
+                                isOnlineReq ? Icons.travel_explore_rounded : Icons.error_outline_rounded,
                                 size: 48,
-                                color: AppTheme.error.withValues(alpha: 0.7),
+                                color: isOnlineReq 
+                                    ? (isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5))
+                                    : AppTheme.error.withValues(alpha: 0.7),
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                _errorMsg!,
+                                isOnlineReq ? 'Press search on keyboard or tap below' : _errorMsg!,
                                 style: TextStyle(
-                                  color: AppTheme.error,
+                                  color: isOnlineReq 
+                                      ? (isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight)
+                                      : AppTheme.error,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (isOnlineReq || _errorMsg == 'Word not found in dictionary') ...[
+                                const SizedBox(height: 24),
+                                OutlinedButton.icon(
+                                  onPressed: () {
+                                    setState(() { _isLoading = true; _errorMsg = null; _translatedText = null; });
+                                    _performSearch(_currentQuery, isSubmit: true);
+                                  },
+                                  icon: const Icon(Icons.public_rounded),
+                                  label: const Text('Search Web'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppTheme.violet,
+                                    side: BorderSide(color: AppTheme.violet.withValues(alpha: 0.4)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         );
