@@ -28,6 +28,8 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   List<Map<String, dynamic>> _incomingInvites = [];
   bool _loading = true;
   Timer? _pollTimer;
+  RealtimeChannel? _pendingDuelsChannel;
+  bool _navigatingToGame = false;
 
   String? get _classCode => Hive.box('userProfile').get('classCode') as String?;
   String? get _userId => Hive.box('userProfile').get('id') as String?;
@@ -37,6 +39,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addObserver(this);
+    _startRealtimeSubscription();
     _loadData();
     _startPolling();
   }
@@ -44,6 +47,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _pendingDuelsChannel?.unsubscribe();
     _tabController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -54,6 +58,51 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     if (state == AppLifecycleState.resumed) {
       _loadData(); // Refresh when app comes back to foreground
     }
+  }
+
+  void _startRealtimeSubscription() {
+    final userId = _userId;
+    if (userId == null) return;
+
+    _pendingDuelsChannel = Supabase.instance.client.channel('duel_lobby_$userId');
+    _pendingDuelsChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'duels',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'challenger_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            if (!mounted || _navigatingToGame) return;
+            final newData = payload.newRecord;
+            if (newData['status'] == 'active') {
+              _navigateToGame(newData);
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _navigateToGame(Map<String, dynamic> duelData) {
+    if (_navigatingToGame) return;
+    _navigatingToGame = true;
+    
+    final words = List<Map<String, dynamic>>.from(
+        (duelData['word_set'] as List).map((w) => Map<String, dynamic>.from(w)));
+        
+    context.push('/duels/game', extra: {
+      'duelId': duelData['id'] as String,
+      'words': words,
+      'isChallenger': true,
+    }).then((_) {
+      if (mounted) {
+        _navigatingToGame = false;
+        _loadData();
+      }
+    });
   }
 
   void _startPolling() {
@@ -73,6 +122,18 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
 
     try {
       final supabase = Supabase.instance.client;
+
+      // Check if we have an active duel we should join right now
+      final activeData = await supabase
+          .from('duels')
+          .select()
+          .eq('challenger_id', userId)
+          .eq('status', 'active');
+          
+      if (activeData.isNotEmpty && mounted && !_navigatingToGame) {
+         _navigateToGame(activeData.first);
+         return; // Skip loading lobby since we are entering a game
+      }
 
       // Fetch classmates (exclude self)
       final classmatesData = await supabase
