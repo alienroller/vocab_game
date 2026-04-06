@@ -21,7 +21,7 @@ class NotificationService {
     const settings = InitializationSettings(android: android, iOS: ios);
 
     await _plugin.initialize(
-      settings: settings,
+      settings,
       onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
       onDidReceiveBackgroundNotificationResponse: _onDidReceiveNotificationResponse,
     );
@@ -51,10 +51,10 @@ class NotificationService {
 
     try {
       await _plugin.show(
-        id: 0,
-        title: '🔥 Your $streakDays-day streak is in danger!',
-        body: 'Open the app and play to keep your streak alive.',
-        notificationDetails: const NotificationDetails(
+        0,
+        '🔥 Your $streakDays-day streak is in danger!',
+        'Open the app and play to keep your streak alive.',
+        const NotificationDetails(
           android: AndroidNotificationDetails(
             'streak',
             'Streak Alerts',
@@ -72,7 +72,7 @@ class NotificationService {
 
   /// Cancel the streak warning (call after the user plays today).
   static Future<void> cancelStreakWarning() async {
-    await _plugin.cancel(id: 0);
+    await _plugin.cancel(0);
   }
 
   // ─── Duel Challenge ─────────────────────────────────────────────
@@ -81,10 +81,10 @@ class NotificationService {
   static Future<void> notifyDuelChallenge(String challengerUsername) async {
     try {
       await _plugin.show(
-        id: 2,
-        title: '⚔️ $challengerUsername challenged you!',
-        body: 'Accept the duel before it expires.',
-        notificationDetails: const NotificationDetails(
+        2,
+        '⚔️ $challengerUsername challenged you!',
+        'Accept the duel before it expires.',
+        const NotificationDetails(
           android: AndroidNotificationDetails(
             'duels',
             'Duel Challenges',
@@ -106,10 +106,10 @@ class NotificationService {
   static Future<void> notifyOvertaken(String byUsername) async {
     try {
       await _plugin.show(
-        id: 1,
-        title: '⚡ $byUsername just passed you!',
-        body: 'Open the game and reclaim your rank.',
-        notificationDetails: const NotificationDetails(
+        1,
+        '⚡ $byUsername just passed you!',
+        'Open the game and reclaim your rank.',
+        const NotificationDetails(
           android: AndroidNotificationDetails(
             'rivalry',
             'Rivalry Alerts',
@@ -148,10 +148,10 @@ class NotificationService {
       String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
 
       await _plugin.show(
-        id: id,
-        title: title,
-        body: body,
-        notificationDetails: notificationDetails,
+        id,
+        title,
+        body,
+        notificationDetails,
         payload: payload,
       );
     } catch (e) {
@@ -190,11 +190,12 @@ class NotificationService {
     String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
 
     await _plugin.zonedSchedule(
-      id: id,
-      title: title,
-      body: body,
-      scheduledDate: scheduledDate,
-      notificationDetails: details,
+      id,
+      title,
+      body,
+      scheduledDate,
+      details,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       matchDateTimeComponents: repeat,
       payload: payload,
