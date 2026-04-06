@@ -98,7 +98,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (!mounted) return;
 
     try {
-      final entry = await dictionaryService.lookup(query, allowFallback: isSubmit);
+      final entry = await DictionaryService().lookup(query, allowFallback: isSubmit);
       if (!mounted) return;
 
       if (entry != null && entry.uzbek.isNotEmpty) {

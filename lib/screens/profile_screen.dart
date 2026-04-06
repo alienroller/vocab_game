@@ -9,6 +9,7 @@ import '../providers/profile_provider.dart';
 import '../services/class_service.dart';
 import '../services/sync_service.dart';
 import '../services/xp_service.dart';
+import '../services/dictionary_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
@@ -230,6 +231,12 @@ class ProfileScreen extends ConsumerWidget {
                 onTap: () => context.push('/teacher-dashboard', extra: classCode),
               ),
             ],
+            const SizedBox(height: 32),
+
+            // ─── Offline Dictionary ─────────────────────────────
+            _SectionHeader(title: 'Offline Dictionary'),
+            const SizedBox(height: 8),
+            const _OfflineDictionarySection(),
             const SizedBox(height: 32),
 
             // ─── Account Management ─────────────────────────────
@@ -723,6 +730,204 @@ class _SectionHeader extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
       ),
+    );
+  }
+}
+
+// ─── Offline Dictionary Section ─────────────────────────────────────
+
+class _OfflineDictionarySection extends StatefulWidget {
+  const _OfflineDictionarySection();
+
+  @override
+  State<_OfflineDictionarySection> createState() => _OfflineDictionarySectionState();
+}
+
+class _OfflineDictionarySectionState extends State<_OfflineDictionarySection> {
+  int _cachedCount = 0;
+  Map<DownloadPack, bool> _downloadedPacks = {
+    DownloadPack.common: false,
+  };
+  DownloadPack? _downloadingPack;
+  double _progress = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    final count = await dictionaryService.getCachedWordCount();
+    final packs = await dictionaryService.getDownloadedPacks();
+    if (mounted) {
+      setState(() {
+        _cachedCount = count;
+        _downloadedPacks = packs;
+      });
+    }
+  }
+
+  Future<void> _handleDownload(DownloadPack pack) async {
+    if (_downloadingPack != null) return;
+    setState(() {
+      _downloadingPack = pack;
+      _progress = 0;
+    });
+
+    try {
+      final success = await dictionaryService.downloadPack(pack, onProgress: (pct) {
+        if (mounted) {
+          setState(() => _progress = pct);
+        }
+      });
+      if (success) {
+        await _loadStats();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Download failed. Check your connection.')),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download failed. Check your connection.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloadingPack = null;
+          _progress = 0;
+        });
+      }
+    }
+  }
+
+  Widget _buildPackCard(
+      DownloadPack pack, String label, String size, String words, String desc, IconData icon) {
+    final isDone = _downloadedPacks[pack] ?? false;
+    final isDownloading = _downloadingPack == pack;
+    final theme = Theme.of(context);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.glassCard(isDark: theme.brightness == Brightness.dark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 28, color: AppTheme.violet),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    Text('$words · $size', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              if (isDone)
+                const Icon(Icons.check_circle, color: Colors.green),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(desc, style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 16),
+          if (isDownloading) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: _progress / 100,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                color: AppTheme.violet,
+                minHeight: 6,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Downloading... ${_progress.toStringAsFixed(0)}%',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: (isDone || _downloadingPack != null) ? null : () => _handleDownload(pack),
+              style: FilledButton.styleFrom(
+                backgroundColor: isDone ? theme.colorScheme.surfaceContainerHighest : AppTheme.violet,
+                foregroundColor: isDone ? theme.colorScheme.onSurfaceVariant : Colors.white,
+              ),
+              child: Text(isDone ? 'Downloaded ✓' : 'Download $label'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Status banner
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+             color: AppTheme.violet.withOpacity(0.1),
+             borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 8, height: 8,
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: AppTheme.violet),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _cachedCount > 0
+                      ? '${_cachedCount} words available offline'
+                      : 'No words downloaded yet',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildPackCard(DownloadPack.common, 'Common Words', '~1MB', '6,000+ words', 'Offline dictionary containing all available translations.', Icons.library_books),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Downloaded words are stored on your device. After downloading, those words are instantly available with no internet needed.',
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
