@@ -48,7 +48,7 @@ class WordEntry {
   }
 }
 
-enum DownloadPack { common }
+
 
 class DictionaryService {
   static final DictionaryService _instance = DictionaryService._internal();
@@ -56,17 +56,11 @@ class DictionaryService {
   DictionaryService._internal();
 
   LazyBox<String>? _wordCache;
-  Box<dynamic>? _packsBox;
   
   final Map<String, WordEntry> _bundled = {};
   bool _bundleLoaded = false;
   
   static const _wordCacheName = 'word_cache';
-  static const _packsBoxName = 'downloaded_packs';
-  
-  static const Map<DownloadPack, int> _packLimits = {
-    DownloadPack.common: 999999,
-  };
 
   Future<void> init() async {
     await _initDb();
@@ -74,7 +68,7 @@ class DictionaryService {
   }
 
   Future<void> _initDb() async {
-    if (_wordCache != null && _packsBox != null) return;
+    if (_wordCache != null) return;
     
     // Fallback initializing for safety, although main.dart usually already calls this
     try {
@@ -85,12 +79,6 @@ class DictionaryService {
       _wordCache = Hive.lazyBox<String>(_wordCacheName);
     } else {
       _wordCache = await Hive.openLazyBox<String>(_wordCacheName);
-    }
-
-    if (Hive.isBoxOpen(_packsBoxName)) {
-      _packsBox = Hive.box<dynamic>(_packsBoxName);
-    } else {
-      _packsBox = await Hive.openBox<dynamic>(_packsBoxName);
     }
   }
 
@@ -294,78 +282,19 @@ class DictionaryService {
     }
   }
 
-  Future<bool> downloadPack(
-    DownloadPack pack, {
-    Function(double)? onProgress,
-  }) async {
-    final limit = _packLimits[pack]!;
-    final batchSize = 1000;
-    final allWords = <WordEntry>[];
-
-    onProgress?.call(0);
-
-    int from = 0;
-    while (allWords.length < limit) {
-      final to = (from + batchSize - 1) < (limit - 1) 
-                 ? (from + batchSize - 1) 
-                 : (limit - 1);
-                 
-      try {
-        final data = await Supabase.instance.client
-            .from('dictionary_words')
-            .select()
-            .order('frequency_rank', ascending: true)
-            .range(from, to);
-
-        if (data.isEmpty) break;
-
-        for (final row in data) {
-          allWords.add(WordEntry.fromJson(row));
-        }
-        from += batchSize;
-
-        final pct = (allWords.length / limit) * 100;
-        onProgress?.call(pct > 99 ? 99 : pct);
-      } catch (e) {
-        print('Pack download interrupted: $e');
-        return false;
-      }
-    }
-
-    await _cacheWords(allWords);
-    await _markPackDownloaded(pack, allWords.length);
-
-    onProgress?.call(100);
-    print('✅ Downloaded ${pack.name} pack: ${allWords.length} words');
-    return true;
-  }
-
-  Future<void> _markPackDownloaded(DownloadPack pack, int count) async {
-    await _initDb();
-    await _packsBox!.put(pack.name, {
-      'word_count': count,
-      'downloaded_at': DateTime.now().toIso8601String(),
-    });
-  }
-
-  Future<Map<DownloadPack, bool>> getDownloadedPacks() async {
-    await _initDb();
-    final downloaded = {
-      DownloadPack.common: false,
-    };
-    
-    for (final packName in _packsBox!.keys) {
-      try {
-         final pack = DownloadPack.values.firstWhere((p) => p.name == packName);
-         downloaded[pack] = true;
-      } catch(_) {}
-    }
-    return downloaded;
-  }
+  int getBundledWordCount() => _bundled.length;
 
   Future<int> getCachedWordCount() async {
     await _initDb();
     return _wordCache!.length;
+  }
+
+  Future<int> getTotalOfflineWordCount() async {
+    if (!_bundleLoaded) await loadBundle();
+    final cachedCount = await getCachedWordCount();
+    // Bundle words are always available; cache may have additional words
+    // not in the bundle (from Supabase/Google Translate lookups)
+    return _bundled.length + cachedCount;
   }
 }
 
