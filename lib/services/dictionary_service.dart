@@ -87,9 +87,17 @@ class DictionaryService {
     try {
       final jsonString = await rootBundle.loadString('assets/top5000_bundle.json');
       final List<dynamic> data = jsonDecode(jsonString);
+      
+      final tempMap = <String, List<WordEntry>>{};
       for (final item in data) {
         final entry = WordEntry.fromJson(item as Map<String, dynamic>);
-        _bundled[entry.english.toLowerCase()] = entry;
+        final key = entry.english.toLowerCase();
+        tempMap.putIfAbsent(key, () => []).add(entry);
+      }
+      
+      for (final entryList in tempMap.values) {
+        final merged = _mergeEntries(entryList);
+        _bundled[merged.english.toLowerCase()] = merged;
       }
       _bundleLoaded = true;
       print('✅ Bundled dictionary: ${_bundled.length} words');
@@ -120,16 +128,12 @@ class DictionaryService {
       final List<dynamic> data = await Supabase.instance.client
           .from('dictionary_words')
           .select()
-          .eq('english', key);
+          .ilike('english', key);
 
       if (data.isNotEmpty) {
         final entries = data.map((item) => WordEntry.fromJson(item as Map<String, dynamic>)).toList();
-        await _cacheWords(entries);
-        
-        final cachedJson = await _wordCache!.get(key);
-        if (cachedJson != null) {
-          return WordEntry.fromJson(jsonDecode(cachedJson));
-        }
+        _cacheWords(entries).ignore();
+        return _mergeEntries(entries);
       }
     } catch (e) {
       print('Supabase lookup failed: $e');
@@ -148,7 +152,7 @@ class DictionaryService {
       }
     } catch (e) {
       print('Network validation failed: $e');
-      return null;
+      throw Exception('Network validation error: $e');
     }
     
     try {
@@ -158,18 +162,16 @@ class DictionaryService {
         final data = jsonDecode(response.body);
         if (data != null && data.isNotEmpty && data[0] != null && data[0].isNotEmpty) {
            final translatedText = data[0][0][0] as String;
-           if (translatedText.toLowerCase() != key.toLowerCase()) {
-              final newEntry = WordEntry(
-                english: key,
-                uzbek: translatedText.toLowerCase(),
-                partOfSpeech: 'Unknown',
-                definition: 'Auto-translated via Google', 
-                frequencyRank: 999999,
-              );
-              // Cache it locally so we never need the API for this word again
-              await _cacheWords([newEntry]);
-              return newEntry;
-           }
+           final newEntry = WordEntry(
+             english: key,
+             uzbek: translatedText.toLowerCase(),
+             partOfSpeech: 'Unknown',
+             definition: 'Auto-translated via Google', 
+             frequencyRank: 999999,
+           );
+           // Cache it locally so we never need the API for this word again
+           _cacheWords([newEntry]).ignore();
+           return newEntry;
         }
       }
     } catch (e) {
@@ -198,7 +200,13 @@ class DictionaryService {
           
       // Cache results in background to improve offline tier later
       _cacheWords(results).ignore();
-      return results;
+      
+      final combinedMap = <String, List<WordEntry>>{};
+      for (final e in results) {
+         final k = e.english.toLowerCase();
+         combinedMap.putIfAbsent(k, () => []).add(e);
+      }
+      return combinedMap.values.map((list) => _mergeEntries(list)).toList();
     } catch (_) {
       // Fallback: Local bundle + logic
       if (!_bundleLoaded) await loadBundle();
@@ -227,7 +235,14 @@ class DictionaryService {
       }
       
       results.sort((a,b) => a.frequencyRank.compareTo(b.frequencyRank));
-      return results;
+      
+      final combinedMap = <String, List<WordEntry>>{};
+      for (final e in results) {
+         final k = e.english.toLowerCase();
+         combinedMap.putIfAbsent(k, () => []).add(e);
+      }
+      final finalResults = combinedMap.values.map((list) => _mergeEntries(list)).toList();
+      return finalResults;
     }
   }
 
@@ -235,41 +250,29 @@ class DictionaryService {
     if (words.isEmpty) return;
     await _initDb();
     
-    final map = <String, String>{};
-    for (final word in words) {
-      final key = word.english.toLowerCase().trim();
-      
-      WordEntry? existing;
-      if (map.containsKey(key)) {
-        existing = WordEntry.fromJson(jsonDecode(map[key]!));
-      } else {
-        final cached = await _wordCache!.get(key);
-        if (cached != null) {
-          existing = WordEntry.fromJson(jsonDecode(cached));
-        }
-      }
+    // Group words by key to handle duplicates in the incoming list
+    final groupByEng = <String, List<WordEntry>>{};
+    for (final w in words) {
+       groupByEng.putIfAbsent(w.english.toLowerCase().trim(), () => []).add(w);
+    }
 
-      if (existing != null) {
-         final existingUzbeks = existing.uzbek.split(',').map((e) => e.trim()).toList();
-         if (!existingUzbeks.contains(word.uzbek.trim())) {
-            final newEntry = WordEntry(
-                english: word.english,
-                uzbek: '${existing.uzbek}, ${word.uzbek}',
-                partOfSpeech: (existing.partOfSpeech == null || existing.partOfSpeech == 'Unknown' || existing.partOfSpeech!.trim().isEmpty) ? word.partOfSpeech : existing.partOfSpeech,
-                definition: (existing.definition == null || existing.definition!.trim().isEmpty) ? word.definition : existing.definition,
-                example: (existing.example == null || existing.example!.trim().isEmpty) ? word.example : existing.example,
-                frequencyRank: existing.frequencyRank < word.frequencyRank ? existing.frequencyRank : word.frequencyRank,
-                cefrLevel: (existing.cefrLevel == null || existing.cefrLevel!.trim().isEmpty) ? word.cefrLevel : existing.cefrLevel,
-            );
-            map[key] = jsonEncode(newEntry.toJson());
-         } else {
-            if (!map.containsKey(key)) {
-              map[key] = jsonEncode(existing.toJson());
-            }
-         }
-      } else {
-         map[key] = jsonEncode(word.toJson());
+    final map = <String, String>{};
+    for (final entry in groupByEng.entries) {
+      final key = entry.key;
+      final newWordsForThisKey = entry.value;
+
+      WordEntry? existing;
+      final cached = await _wordCache!.get(key);
+      if (cached != null) {
+         existing = WordEntry.fromJson(jsonDecode(cached));
       }
+      
+      final allToMerge = <WordEntry>[];
+      if (existing != null) allToMerge.add(existing);
+      allToMerge.addAll(newWordsForThisKey);
+
+      final merged = _mergeEntries(allToMerge);
+      map[key] = jsonEncode(merged.toJson());
     }
     
     // Save in batches of 500 to ensure Web IndexedDB stability
@@ -295,6 +298,75 @@ class DictionaryService {
     // Bundle words are always available; cache may have additional words
     // not in the bundle (from Supabase/Google Translate lookups)
     return _bundled.length + cachedCount;
+  }
+
+  WordEntry _mergeEntries(List<WordEntry> entries) {
+    if (entries.isEmpty) throw ArgumentError('Cannot merge empty list');
+    if (entries.length == 1) return entries.first;
+    
+    final uzbekSet = <String>{};
+    final posSet = <String>{};
+    final definitions = <String>[];
+    final examples = <String>[];
+    int minRank = 999999;
+    String? bestCefr;
+    
+    for (final e in entries) {
+       final parts = e.uzbek.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
+       uzbekSet.addAll(parts);
+       
+       if (e.partOfSpeech != null && e.partOfSpeech != 'Unknown' && e.partOfSpeech!.trim().isNotEmpty) {
+          final posParts = e.partOfSpeech!.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty);
+          posSet.addAll(posParts);
+       }
+       
+       if (e.definition != null && e.definition!.trim().isNotEmpty) {
+          final defParts = e.definition!.split('\n');
+          for (var p in defParts) {
+             p = p.trim();
+             if (p.startsWith('• ')) p = p.substring(2).trim();
+             if (p.isNotEmpty && !definitions.contains(p)) {
+                 definitions.add(p);
+             }
+          }
+       }
+       
+       if (e.example != null && e.example!.trim().isNotEmpty) {
+          final exParts = e.example!.split('\n');
+          for (var p in exParts) {
+             p = p.trim();
+             if (p.startsWith('• ')) p = p.substring(2).trim();
+             if (p.isNotEmpty && !examples.contains(p)) {
+                 examples.add(p);
+             }
+          }
+       }
+       
+       if (e.frequencyRank < minRank) minRank = e.frequencyRank;
+       if (bestCefr == null && e.cefrLevel != null && e.cefrLevel!.trim().isNotEmpty) {
+           bestCefr = e.cefrLevel;
+       }
+    }
+    
+    String? combinedPos = posSet.isNotEmpty ? posSet.join(', ') : null;
+    String? combinedDef;
+    if (definitions.isNotEmpty) {
+        combinedDef = definitions.length == 1 ? definitions.single : definitions.asMap().entries.map((e) => '• ${e.value}').join('\n');
+    }
+    String? combinedExample;
+    if (examples.isNotEmpty) {
+        combinedExample = examples.length == 1 ? examples.single : examples.asMap().entries.map((e) => '• ${e.value}').join('\n');
+    }
+    
+    return WordEntry(
+       english: entries.first.english,
+       uzbek: uzbekSet.join(', '),
+       partOfSpeech: combinedPos,
+       definition: combinedDef,
+       example: combinedExample,
+       frequencyRank: minRank,
+       cefrLevel: bestCefr,
+    );
   }
 }
 

@@ -103,6 +103,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     try {
       final entry = await DictionaryService().lookup(query, allowFallback: isSubmit);
       if (!mounted) return;
+      if (_currentQuery != query) return;
 
       if (entry != null && entry.uzbek.isNotEmpty) {
         setState(() {
