@@ -60,3 +60,10 @@ analyze_*.txt
 tools/content_pipeline/node_modules/
 tools/content_pipeline/output_*.json
 tools/content_pipeline/output_*.txt
+
+# Dictionary Pipeline Data
+files for word database pipeline/*.bz2
+files for word database pipeline/*.json
+files for word database pipeline/*.txt
+files for word database pipeline/chunks/
+
