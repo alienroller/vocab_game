@@ -157,7 +157,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         ),
                         child: FilledButton(
                           onPressed: () =>
-                              context.go('/onboarding/username'),
+                              context.push('/onboarding/username'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: AppTheme.violetDark,

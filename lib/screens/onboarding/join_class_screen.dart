@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../providers/profile_provider.dart';
@@ -79,7 +80,8 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
       }
 
       if (mounted) {
-        context.go('/onboarding/pin');
+        await Hive.box('userProfile').put('hasOnboarded', true);
+        context.go('/home');
       }
     } catch (e) {
       if (mounted) {
@@ -135,8 +137,9 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
     }
   }
 
-  void _skip() {
-    context.go('/onboarding/pin');
+  void _skip() async {
+    await Hive.box('userProfile').put('hasOnboarded', true);
+    if (mounted) context.go('/home');
   }
 
   @override

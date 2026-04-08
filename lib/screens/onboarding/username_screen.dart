@@ -88,7 +88,7 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
       await NotificationService.requestPermission();
 
       if (mounted) {
-        context.go('/onboarding/join-class');
+        context.push('/onboarding/pin');
       }
     } catch (e) {
       if (mounted) {

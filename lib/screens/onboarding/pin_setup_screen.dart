@@ -45,12 +45,10 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     if (!mounted) return;
 
     if (success) {
-      // Mark onboarding as complete
-      await Hive.box('userProfile').put('hasOnboarded', true);
-
+      // Move to the next onboarding step (join class)
       if (!mounted) return;
 
-      context.go('/home');
+      context.push('/onboarding/join-class');
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
