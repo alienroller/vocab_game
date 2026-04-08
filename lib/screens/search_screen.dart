@@ -46,6 +46,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   String? _errorMsg;
   String _currentQuery = '';
   String? _translatedText;
+  WordEntry? _currentEntry;
 
   @override
   void initState() {
@@ -75,6 +76,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         setState(() {
           _currentQuery = cleanQuery;
           _translatedText = null;
+          _currentEntry = null;
           _errorMsg = null;
           _isLoading = false;
         });
@@ -87,6 +89,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _isLoading = true;
       _errorMsg = null;
       _translatedText = null;
+      _currentEntry = null;
     });
 
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -105,6 +108,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         setState(() {
           _isLoading = false;
           _translatedText = transliterateCyrillicToLatin(entry.uzbek).toLowerCase();
+          _currentEntry = entry;
           _errorMsg = null;
         });
       } else {
@@ -112,6 +116,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           _isLoading = false;
           _errorMsg = isSubmit ? 'Word not found in dictionary' : 'Online search required';
           _translatedText = null;
+          _currentEntry = null;
         });
       }
     } catch (e) {
@@ -120,6 +125,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           _isLoading = false;
           _errorMsg = 'Library error: $e';
           _translatedText = null;
+          _currentEntry = null;
         });
       }
     }
@@ -353,11 +359,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    _currentQuery,
-                                    style: theme.textTheme.headlineSmall?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _currentQuery,
+                                          style: theme.textTheme.headlineSmall?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_currentEntry?.cefrLevel != null &&
+                                          _currentEntry!.cefrLevel!.trim().isNotEmpty)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: _cefrColor(_currentEntry!.cefrLevel!).withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: _cefrColor(_currentEntry!.cefrLevel!).withValues(alpha: 0.5)),
+                                          ),
+                                          child: Text(
+                                            _currentEntry!.cefrLevel!,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w800,
+                                              color: _cefrColor(_currentEntry!.cefrLevel!),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                   const SizedBox(height: 24),
                                   Text(
@@ -376,6 +406,67 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                       color: AppTheme.violet,
                                     ),
                                   ),
+                                  if (_currentEntry?.partOfSpeech != null &&
+                                      _currentEntry!.partOfSpeech != 'Unknown' && 
+                                      _currentEntry!.partOfSpeech!.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Part of Speech',
+                                      style: TextStyle(
+                                        color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _currentEntry!.partOfSpeech!,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                  if (_currentEntry?.definition != null &&
+                                      _currentEntry!.definition!.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Definition',
+                                      style: TextStyle(
+                                        color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _currentEntry!.definition!,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ],
+                                  if (_currentEntry?.example != null &&
+                                      _currentEntry!.example!.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Example',
+                                      style: TextStyle(
+                                        color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '"${_currentEntry!.example!}"',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontStyle: FontStyle.italic,
+                                        color: AppTheme.violet.withValues(alpha: 0.9),
+                                      ),
+                                    ),
+                                  ],
                                   const SizedBox(height: 32),
                                   SizedBox(
                                     height: 52,
@@ -421,5 +512,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ),
       ),
     );
+  }
+
+  Color _cefrColor(String level) {
+    switch (level.toUpperCase()) {
+      case 'A1':
+      case 'A2':
+        return const Color(0xFF2ECC71); // green
+      case 'B1':
+      case 'B2':
+        return const Color(0xFFF39C12); // amber
+      case 'C1':
+      case 'C2':
+        return const Color(0xFFE74C3C); // red
+      default:
+        return Colors.grey;
+    }
   }
 }

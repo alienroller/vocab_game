@@ -11,6 +11,7 @@ class WordEntry {
   final String? definition;
   final String? example;
   final int frequencyRank;
+  final String? cefrLevel;
 
   WordEntry({
     required this.english,
@@ -19,6 +20,7 @@ class WordEntry {
     this.definition,
     this.example,
     this.frequencyRank = 999999,
+    this.cefrLevel,
   });
 
   factory WordEntry.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class WordEntry {
       definition: json['definition'] as String?,
       example: json['example'] as String?,
       frequencyRank: json['frequency_rank'] as int? ?? 999999,
+      cefrLevel: json['cefr_level'] as String?,
     );
   }
 
@@ -40,6 +43,7 @@ class WordEntry {
       'definition': definition,
       'example': example,
       'frequency_rank': frequencyRank,
+      'cefr_level': cefrLevel,
     };
   }
 }
@@ -125,17 +129,19 @@ class DictionaryService {
 
     // Tier 3: Supabase
     try {
-      final data = await Supabase.instance.client
+      final List<dynamic> data = await Supabase.instance.client
           .from('dictionary_words')
           .select()
-          .eq('english', key)
-          .limit(1)
-          .maybeSingle();
+          .eq('english', key);
 
-      if (data != null) {
-        final entry = WordEntry.fromJson(data);
-        await _cacheWords([entry]);
-        return entry;
+      if (data.isNotEmpty) {
+        final entries = data.map((item) => WordEntry.fromJson(item as Map<String, dynamic>)).toList();
+        await _cacheWords(entries);
+        
+        final cachedJson = await _wordCache!.get(key);
+        if (cachedJson != null) {
+          return WordEntry.fromJson(jsonDecode(cachedJson));
+        }
       }
     } catch (e) {
       print('Supabase lookup failed: $e');
@@ -261,10 +267,11 @@ class DictionaryService {
             final newEntry = WordEntry(
                 english: word.english,
                 uzbek: '${existing.uzbek}, ${word.uzbek}',
-                partOfSpeech: existing.partOfSpeech == 'Unknown' ? word.partOfSpeech : existing.partOfSpeech,
-                definition: existing.definition == '' ? word.definition : existing.definition,
-                example: existing.example == '' ? word.example : existing.example,
-                frequencyRank: existing.frequencyRank < word.frequencyRank ? existing.frequencyRank : word.frequencyRank, 
+                partOfSpeech: (existing.partOfSpeech == null || existing.partOfSpeech == 'Unknown' || existing.partOfSpeech!.trim().isEmpty) ? word.partOfSpeech : existing.partOfSpeech,
+                definition: (existing.definition == null || existing.definition!.trim().isEmpty) ? word.definition : existing.definition,
+                example: (existing.example == null || existing.example!.trim().isEmpty) ? word.example : existing.example,
+                frequencyRank: existing.frequencyRank < word.frequencyRank ? existing.frequencyRank : word.frequencyRank,
+                cefrLevel: (existing.cefrLevel == null || existing.cefrLevel!.trim().isEmpty) ? word.cefrLevel : existing.cefrLevel,
             );
             map[key] = jsonEncode(newEntry.toJson());
          } else {

@@ -905,7 +905,7 @@ class _OfflineDictionarySectionState extends State<_OfflineDictionarySection> {
           ),
         ),
         const SizedBox(height: 16),
-        _buildPackCard(DownloadPack.common, 'Common Words', '~1MB', '6,000+ words', 'Offline dictionary containing all available translations.', Icons.library_books),
+        _buildPackCard(DownloadPack.common, 'Common Words', '~1MB', '4,897 words', 'Oxford curated dictionary with CEFR levels and definitions.', Icons.library_books),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
