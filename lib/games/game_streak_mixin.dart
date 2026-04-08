@@ -81,4 +81,26 @@ mixin GameStreakMixin<T extends ConsumerStatefulWidget>
       }
     }
   }
+
+  /// Shows standard confirmation dialog when trying to exit an active game
+  Future<bool?> showExitConfirmation(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quit Game?'),
+        content: const Text('Are you sure you want to quit? You will lose this game\'s progress.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Quit'),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -171,8 +171,17 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
     final matchedCount = _cards.where((c) => c.isMatched).length ~/ 2;
     final totalPairs = _cards.length ~/ 2;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showExitConfirmation(context);
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Memory'),
         actions: [
@@ -312,6 +321,7 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
               ),
           ],
         ),
+      ),
       ),
     );
   }

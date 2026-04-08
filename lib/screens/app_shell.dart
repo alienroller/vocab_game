@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -24,6 +25,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _duelInviteCount = 0;
   Timer? _badgeTimer;
+  DateTime? _lastBackPressTime;
 
   @override
   void initState() {
@@ -67,8 +69,37 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      body: widget.navigationShell,
+    return PopScope(
+      canPop: false, // We will handle the pop manually
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+
+        // If not on Home tab, switch back to Home tab
+        if (widget.navigationShell.currentIndex != 0) {
+          widget.navigationShell.goBranch(0);
+          return;
+        }
+
+        // On Home tab: Require double-tap within 2 seconds to exit
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Press back again to exit', textAlign: TextAlign.center),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+
+        // Double tap confirmed, exit the app
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        body: widget.navigationShell,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: isDark
@@ -133,6 +164,7 @@ class _AppShellState extends State<AppShell> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),

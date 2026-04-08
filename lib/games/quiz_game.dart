@@ -129,8 +129,17 @@ class _QuizGameState extends ConsumerState<QuizGame>
     final isDark = theme.brightness == Brightness.dark;
     final currentWord = _quizVocab[_currentIndex];
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showExitConfirmation(context);
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Quiz'),
         actions: [
@@ -308,6 +317,7 @@ class _QuizGameState extends ConsumerState<QuizGame>
             ),
         ],
         ),
+      ),
       ),
     );
   }

@@ -270,8 +270,34 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Quit Duel?'),
+            content: const Text('Are you sure you want to quit? You will forfeit this duel.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Quit'),
+              ),
+            ],
+          ),
+        );
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('⚔️ Duel'),
         automaticallyImplyLeading: false,
@@ -473,6 +499,7 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
             ),
           ),
         ],
+      ),
       ),
       ),
       ),

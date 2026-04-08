@@ -140,8 +140,17 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showExitConfirmation(context);
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Matching'),
         actions: [
@@ -338,6 +347,7 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
               ),
           ],
         ),
+      ),
       ),
     );
   }

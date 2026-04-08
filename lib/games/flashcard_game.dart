@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
 import 'game_streak_mixin.dart';
 
 class FlashcardGame extends ConsumerStatefulWidget {
@@ -67,8 +68,17 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
     final isDark = theme.brightness == Brightness.dark;
     final currentWord = _shuffledVocab[_currentIndex];
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showExitConfirmation(context);
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Flashcards'),
       ),
@@ -239,6 +249,7 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
           ),
         ],
         ),
+      ),
       ),
     );
   }

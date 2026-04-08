@@ -162,8 +162,17 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
     final isDark = theme.brightness == Brightness.dark;
     final currentWord = _gameVocab[_currentIndex];
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await showExitConfirmation(context);
+        if (shouldPop == true && context.mounted) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Fill in the Blank'),
         actions: [
@@ -485,6 +494,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
               ),
           ],
         ),
+      ),
       ),
     );
   }
