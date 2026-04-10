@@ -1,357 +1,168 @@
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import '../models/speaking_models.dart';
+import '../models/scripted_conversation.dart';
 import 'eval_cache_service.dart';
-import 'gemini_client.dart';
-import 'prompt_builders.dart';
+import 'local_evaluator.dart';
+import 'local_summary_generator.dart';
 
-/// The evaluation engine — dispatches to the right prompt builder,
-/// calls Gemini, parses the response, and determines next action.
+/// The evaluation engine — dispatches to the right local evaluator,
+/// checks persistent cache, and determines next action.
+///
+/// After refactor: ZERO Gemini API calls. All evaluation is local.
 class EvaluationEngine {
   EvaluationEngine._();
 
   // ─── Main Dispatcher ──────────────────────────────────────────────
 
-  /// Evaluate a step using Gemini (or Levenshtein fallback).
+  /// Evaluate a step using local algorithms (no network).
   static Future<EvaluationResult> evaluateStep({
     required LessonStep step,
     required String transcript,
     required GeminiSessionContext ctx,
     List<ConversationTurn>? history,
   }) async {
-    if (transcript.trim().length < 2) {
-      return EvaluationResult.empty();
+    // Guard: empty transcript is an empty result — do not evaluate
+    if (transcript.trim().length < 2) return EvaluationResult.empty();
+
+    // Free conversation uses its own scripted evaluator path
+    if (step.type == StepType.freeConversation) {
+      return _evaluateScriptedConversationTurn(step, transcript, history ?? []);
     }
 
-    try {
-      if (step.type == StepType.freeConversation) {
-        if (history == null) {
-          debugPrint('Warning: history is null for freeConversation');
-          history = [];
-        }
-        return await _evaluateConversationTurn(
-          step: step,
+    // Check persistent cache before any computation
+    final cached = await EvalCacheService.get(step, transcript, ctx.learnerLevel);
+    if (cached != null) {
+      debugPrint('Eval cache hit for: $transcript');
+      return cached;
+    }
+
+    // Local evaluation — zero network, zero quota
+    final EvaluationResult result;
+    switch (step.type) {
+      case StepType.listenAndRepeat:
+        result = LocalEvaluator.evaluateListenAndRepeat(
+          targetPhrase: step.targetPhrase ?? '',
           transcript: transcript,
-          ctx: ctx,
-          history: history,
+          level: ctx.learnerLevel,
         );
-      }
 
-      // Check cache first
-      final cachedResult = EvalCacheService.getCachedResult(step, transcript, ctx);
-      if (cachedResult != null) {
-        debugPrint('Eval cache hit for: \$transcript');
-        return cachedResult;
-      }
-
-      final prompt = _buildPrompt(step, transcript, ctx);
-      if (prompt == null) {
-        throw GeminiUnavailableException('Missing prompt builder');
-      }
-
-      final json = await GeminiClient.callJSON(prompt: prompt);
-      final result = _parseResult(json, step.type);
-      
-      EvalCacheService.cacheResult(step, transcript, ctx, result);
-      return result;
-    } on GeminiUnavailableException catch (e) {
-      debugPrint('Gemini unavailable ($e) — using smart fallback');
-      return _smartFallback(step, transcript);
-    } catch (e) {
-      debugPrint('Evaluation error: $e — using smart fallback');
-      return _smartFallback(step, transcript);
-    }
-  }
-
-  /// Build the right prompt for the step type.
-  static String? _buildPrompt(
-      LessonStep step, String transcript, GeminiSessionContext ctx) {
-    switch (step.type) {
-      case StepType.listenAndRepeat:
-        return PromptBuilders.listenAndRepeat(
-          ctx: ctx,
-          targetPhrase: step.targetPhrase!,
-          userTranscript: transcript,
-        );
       case StepType.readAndSpeak:
-        return PromptBuilders.readAndSpeak(
-          ctx: ctx,
-          targetPhrase: step.targetPhrase!,
+        result = LocalEvaluator.evaluateReadAndSpeak(
+          targetPhrase: step.targetPhrase ?? '',
           acceptableVariants: step.acceptableVariants,
-          userTranscript: transcript,
+          transcript: transcript,
+          level: ctx.learnerLevel,
         );
+
       case StepType.promptResponse:
-        return PromptBuilders.promptResponse(
-          ctx: ctx,
-          question: step.promptQuestion!,
+        result = LocalEvaluator.evaluatePromptResponse(
+          question: step.promptQuestion ?? '',
           expectedKeywords: step.expectedKeywords,
+          transcript: transcript,
           grammarFocus: step.grammarFocus,
-          userTranscript: transcript,
+          level: ctx.learnerLevel,
         );
+
       case StepType.fillTheGap:
-        return PromptBuilders.fillTheGap(
-          ctx: ctx,
-          sentenceWithGap: step.targetPhrase!,
+        // correctAnswers = expectedKeywords (the accepted gap words)
+        result = LocalEvaluator.evaluateFillTheGap(
+          targetPhrase: step.targetPhrase ?? '',
           correctAnswers: step.expectedKeywords,
-          userTranscript: transcript,
+          transcript: transcript,
         );
+
       case StepType.freeConversation:
-        return null;
-    }
-  }
-
-  static Future<EvaluationResult> _evaluateConversationTurn({
-    required LessonStep step,
-    required String transcript,
-    required GeminiSessionContext ctx,
-    required List<ConversationTurn> history,
-  }) async {
-    final systemInstruction = PromptBuilders.freeConversationInstruction(
-      ctx: ctx,
-      step: step,
-    );
-
-    try {
-      final rawResponse = await GeminiClient.callConversation(
-        systemInstruction: systemInstruction,
-        history: history,
-        prompt: transcript,
-      );
-
-      // Parse <<<EVAL>>> JSON block if present
-      final evalMatch = RegExp(r'<<<EVAL>>>([\s\S]*?)<<<END_EVAL>>>').firstMatch(rawResponse);
-      
-      if (evalMatch != null) {
-        final jsonStr = evalMatch.group(1)!.trim();
-        final json = jsonDecode(jsonStr);
-        final reply = rawResponse.replaceAll(evalMatch.group(0)!, '').trim();
-        
-        return EvaluationResult(
-          score: (json['score'] as num?)?.toDouble() ?? 0.0,
-          passed: json['passed'] as bool? ?? false,
-          feedback: json['feedback'] as String? ?? 'Good conversation!',
-          chatReply: reply.isNotEmpty ? reply : null,
-          isConversationComplete: true,
-          fluency: (json['fluency'] as num?)?.toDouble(),
-          vocabularyRange: (json['vocabulary_range'] as num?)?.toDouble(),
-          taskCompletion: (json['task_completion'] as num?)?.toDouble(),
-          highlights: _parseStringList(json['highlights']),
-          focusAreas: _parseStringList(json['focus_areas']),
-        );
-      } else {
-        // Conversation continues...
-        return EvaluationResult(
-          score: 1.0,
-          passed: true,
-          feedback: '',
-          chatReply: rawResponse.trim(),
-          isConversationComplete: false,
-        );
-      }
-    } catch (e) {
-      debugPrint('Conversation error: $e');
-      return const EvaluationResult(
-        score: 1.0,
-        passed: true,
-        feedback: '',
-        chatReply: "I'm having trouble connecting. Could you say that again?",
-        isConversationComplete: false,
-      );
-    }
-  }
-
-  /// Parse Gemini's JSON response into an EvaluationResult.
-  static EvaluationResult _parseResult(
-      Map<String, dynamic> json, StepType type) {
-    return EvaluationResult(
-      score: (json['score'] as num?)?.toDouble() ?? 0.0,
-      passed: json['passed'] as bool? ?? false,
-      feedback: json['feedback'] as String? ?? 'Good effort!',
-      specificIssue: json['specific_issue'] as String?,
-      celebration: json['celebration'] as String?,
-      modelAnswer: json['model_answer'] as String?,
-      missingWords: _parseStringList(json['missing_words']),
-      vocabularyHit: _parseStringList(json['vocabulary_hit']),
-      vocabularyMiss: _parseStringList(json['vocabulary_miss']),
-      gapFilledCorrectly: json['gap_filled_correctly'] as bool?,
-      spokeFullSentence: json['spoke_full_sentence'] as bool?,
-      correctFullSentence: json['correct_full_sentence'] as String?,
-      wrongLanguageDetected: json['wrong_language'] as bool? ?? false,
-    );
-  }
-
-  static List<String> _parseStringList(dynamic value) {
-    if (value is List) return value.map((e) => e.toString()).toList();
-    return [];
-  }
-
-  /// Smart fallback when Gemini is unavailable (e.g. CORS on web).
-  /// Uses step-type-specific scoring strategies.
-  static EvaluationResult _smartFallback(LessonStep step, String transcript) {
-    switch (step.type) {
-      case StepType.listenAndRepeat:
-      case StepType.readAndSpeak:
-        return _levenshteinFallback(step, transcript);
-      case StepType.promptResponse:
-        return _keywordFallback(step, transcript);
-      case StepType.fillTheGap:
-        return _gapFillFallback(step, transcript);
-      case StepType.freeConversation:
-        // Always pass free conversation in fallback mode
-        return const EvaluationResult(
-          score: 0.7,
-          passed: true,
-          feedback: 'Great effort! Keep practicing your speaking. 💬',
-        );
-    }
-  }
-
-  /// Levenshtein fallback for listen-and-repeat / read-and-speak.
-  /// Compares transcript against the target phrase.
-  static EvaluationResult _levenshteinFallback(
-      LessonStep step, String transcript) {
-    final target = step.targetPhrase ?? '';
-    final score = GeminiClient.levenshteinScore(target, transcript);
-    final passed = score >= step.minAccuracyToPass;
-
-    String feedback;
-    if (score > 0.9) {
-      feedback = 'Excellent — almost perfect! 🌟';
-    } else if (score > 0.7) {
-      feedback = 'Good job — keep practicing! 💪';
-    } else if (score > 0.5) {
-      feedback = 'Nice try — a few words were off. Try again!';
-    } else {
-      feedback = "That wasn't quite right. Listen carefully and try again.";
+        // Handled above — this case is unreachable
+        result = EvaluationResult.empty();
     }
 
-    return EvaluationResult(
-      score: score,
-      passed: passed,
-      feedback: feedback,
-      correctFullSentence: target,
-    );
+    // Persist to cache for future attempts
+    await EvalCacheService.set(step, transcript, ctx.learnerLevel, result);
+    return result;
   }
 
-  /// Keyword-overlap fallback for prompt-response steps.
-  /// Checks how many expected keywords the user included,
-  /// and gives generous credit for any meaningful attempt.
-  static EvaluationResult _keywordFallback(
-      LessonStep step, String transcript) {
-    final words = transcript.toLowerCase().split(RegExp(r'\s+'));
-    final keywords = step.expectedKeywords;
+  // ─── Scripted Conversation ────────────────────────────────────────
 
-    if (keywords.isEmpty) {
-      // No keywords defined — if they said something, give credit
-      final score = transcript.trim().length > 3 ? 0.75 : 0.3;
+  /// Evaluates one turn of a scripted conversation.
+  ///
+  /// [history] is used to determine which node we're currently on:
+  ///   - Empty history = first node (opening turn)
+  ///   - Each passed turn adds 2 entries (user + model) to history
+  ///   - Current node index = history.length / 2
+  static Future<EvaluationResult> _evaluateScriptedConversationTurn(
+    LessonStep step,
+    String transcript,
+    List<ConversationTurn> history,
+  ) async {
+    // Look up the scripted conversation for this step
+    final script = ScriptedConversationRegistry.get(step.id);
+
+    if (script == null) {
+      debugPrint('No script registered for step: ${step.id} — using fallback');
+      // No script registered — fallback: any non-empty response passes
       return EvaluationResult(
-        score: score,
-        passed: score >= step.minAccuracyToPass,
-        feedback: score >= step.minAccuracyToPass
-            ? 'Good response! 👍'
-            : 'Try to give a more complete answer.',
+        score: 0.75,
+        passed: true,
+        feedback: "Good response!",
+        chatReply: "Great! Let's continue.",
+        isConversationComplete: history.length >= 4,
+        fluency: 0.75,
+        vocabularyRange: 0.70,
+        taskCompletion: 0.75,
+        isEmpty: false,
+        missingWords: const [],
+        vocabularyHit: const [],
+        vocabularyMiss: const [],
+        highlights: const ['Completed a conversation turn'],
+        focusAreas: const [],
+        wrongLanguageDetected: false,
       );
     }
 
-    // Count keyword matches
-    int hits = 0;
-    final hitList = <String>[];
-    final missList = <String>[];
+    // Determine current node from history length
+    // The first AI message is pre-added to history, so:
+    // history = [model(opening)] → user responds → we evaluate node 0
+    // After pass: history = [model(opening), user, model(next)] → node 1
+    // Current node = number of completed user turns
+    final currentNodeIndex = history.where((t) => t.role == ConversationRole.user).length;
 
-    for (final keyword in keywords) {
-      final kw = keyword.toLowerCase();
-      if (words.any((w) => w.contains(kw) || kw.contains(w))) {
-        hits++;
-        hitList.add(keyword);
-      } else {
-        missList.add(keyword);
-      }
+    if (currentNodeIndex >= script.nodes.length) {
+      // We're past the end — mark complete
+      return const EvaluationResult(
+        score: 0.90,
+        passed: true,
+        feedback: "Excellent conversation!",
+        isConversationComplete: true,
+        fluency: 0.85,
+        vocabularyRange: 0.80,
+        taskCompletion: 0.95,
+        isEmpty: false,
+        missingWords: [],
+        vocabularyHit: [],
+        vocabularyMiss: [],
+        highlights: ['Completed the full conversation!'],
+        focusAreas: [],
+        wrongLanguageDetected: false,
+      );
     }
 
-    // Score: keyword overlap + bonus for having a meaningful response
-    double score = keywords.isNotEmpty ? hits / keywords.length : 0.0;
-    // Bonus: if they said a full sentence (5+ words), boost score
-    if (words.length >= 4) score = min(1.0, score + 0.2);
-    // Bonus: if they answered at all, at least 0.3
-    if (transcript.trim().length > 5) score = max(score, 0.3);
+    final currentNode = script.nodes[currentNodeIndex];
 
-    final passed = score >= step.minAccuracyToPass;
+    // Get the next node's AI utterance (to be spoken after this pass)
+    final nextNode = currentNode.nextNodeId != null
+        ? script.getNode(currentNode.nextNodeId!)
+        : null;
 
-    String feedback;
-    if (score >= 0.85) {
-      feedback = 'Excellent response — you used the right vocabulary! 🌟';
-    } else if (score >= 0.65) {
-      feedback = 'Good answer! You got the key idea across. 👍';
-    } else if (hits > 0) {
-      feedback =
-          'You used "${hitList.join(", ")}" — try to also include "${missList.take(2).join(", ")}".';
-    } else {
-      feedback =
-          'Try using some of these words: "${keywords.take(3).join(", ")}".';
-    }
-
-    return EvaluationResult(
-      score: score,
-      passed: passed,
-      feedback: feedback,
-      vocabularyHit: hitList,
-      vocabularyMiss: missList.take(2).toList(),
-    );
-  }
-
-  /// Gap-fill fallback: check if any correct keyword appears in transcript.
-  static EvaluationResult _gapFillFallback(
-      LessonStep step, String transcript) {
-    final words = transcript.toLowerCase().split(RegExp(r'\s+'));
-    final correctAnswers = step.expectedKeywords;
-
-    // Check if any correct word for the gap is present
-    final gapCorrect = correctAnswers.any((answer) {
-      final ans = answer.toLowerCase();
-      return words.any((w) => w == ans || w.contains(ans));
-    });
-
-    // Check if they spoke a full sentence (not just the gap word)
-    final spokeFullSentence = words.length >= 4;
-
-    double score;
-    if (gapCorrect && spokeFullSentence) {
-      score = 0.95;
-    } else if (gapCorrect) {
-      score = 0.55; // Got the word but not the full sentence
-    } else {
-      score = 0.2;
-    }
-
-    final passed = score >= step.minAccuracyToPass;
-
-    String feedback;
-    if (gapCorrect && spokeFullSentence) {
-      feedback = 'Perfect — you filled the gap and said the full sentence! 🌟';
-    } else if (gapCorrect) {
-      feedback =
-          'You got the right word! Now try saying the complete sentence.';
-    } else {
-      feedback =
-          'The missing word was "${correctAnswers.first}". Try again with the full sentence.';
-    }
-
-    // Reconstruct the full correct sentence
-    final fullSentence = step.targetPhrase?.replaceAll(
-      RegExp(r'_+'),
-      correctAnswers.first,
-    );
-
-    return EvaluationResult(
-      score: score,
-      passed: passed,
-      feedback: feedback,
-      gapFilledCorrectly: gapCorrect,
-      spokeFullSentence: spokeFullSentence,
-      correctFullSentence: fullSentence,
+    return LocalEvaluator.evaluateScriptedTurn(
+      transcript: transcript,
+      acceptableKeywords: currentNode.acceptableKeywords,
+      feedbackOnSuccess: currentNode.feedbackOnSuccess,
+      feedbackOnFail: currentNode.feedbackOnFail,
+      nextAiUtterance: nextNode?.aiUtterance,
+      isLastNode: currentNode.isLastNode,
     );
   }
 
@@ -424,57 +235,16 @@ class EvaluationEngine {
 
   // ─── Lesson Summary ───────────────────────────────────────────────
 
-  /// Generate a lesson summary using Gemini.
+  /// Generate a lesson summary — fully local, no API call.
   static Future<LessonSummary> generateSummary({
     required SpeakingLesson lesson,
     required UserProgress progress,
     required GeminiSessionContext ctx,
   }) async {
-    try {
-      final avgScore = progress.stepResults.isEmpty
-          ? 0.0
-          : progress.stepResults.fold<double>(
-                  0.0,
-                  (sum, r) =>
-                      sum +
-                      (r.attempts.isNotEmpty
-                          ? r.attempts.last.score
-                          : 0.0)) /
-              progress.stepResults.length;
-
-      final allMistakes = progress.stepResults
-          .expand((s) => s.attempts)
-          .where((a) => a.specificIssue != null)
-          .map((a) => a.specificIssue!)
-          .toList();
-
-      final prompt = PromptBuilders.lessonSummary(
-        ctx: ctx,
-        lesson: lesson,
-        averageScore: avgScore,
-        totalXpEarned: progress.totalXpEarned,
-        allMistakes: allMistakes,
-      );
-
-      final json = await GeminiClient.callJSON(prompt: prompt);
-
-      return LessonSummary(
-        headline: json['headline'] as String? ?? 'Great practice session!',
-        strength: json['strength'] as String? ?? 'You showed up and tried!',
-        focusNext:
-            json['focus_next'] as String? ?? 'Keep practicing regularly.',
-        encouragement: json['encouragement'] as String? ??
-            "You're making real progress — keep it up!",
-        badgeEarned: json['badge_earned'] as String?,
-      );
-    } catch (e) {
-      debugPrint('Summary generation failed: $e');
-      return const LessonSummary(
-        headline: 'Practice complete! 🎉',
-        strength: 'You showed real determination.',
-        focusNext: 'Review the words you found challenging.',
-        encouragement: "Every practice session makes you stronger. Keep going!",
-      );
-    }
+    // Fully local — no API call
+    return LocalSummaryGenerator.generate(
+      lesson: lesson,
+      progress: progress,
+    );
   }
 }

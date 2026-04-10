@@ -311,6 +311,58 @@ class EvaluationResult {
         feedback: "We didn't hear anything — try again!",
         isEmpty: true,
       );
+
+  /// Serialize for persistent cache storage.
+  Map<String, dynamic> toJson() => {
+    'score': score,
+    'passed': passed,
+    'feedback': feedback,
+    'specificIssue': specificIssue,
+    'celebration': celebration,
+    'modelAnswer': modelAnswer,
+    'missingWords': missingWords,
+    'vocabularyHit': vocabularyHit,
+    'vocabularyMiss': vocabularyMiss,
+    'gapFilledCorrectly': gapFilledCorrectly,
+    'spokeFullSentence': spokeFullSentence,
+    'correctFullSentence': correctFullSentence,
+    'isEmpty': isEmpty,
+    'chatReply': chatReply,
+    'isConversationComplete': isConversationComplete,
+    'fluency': fluency,
+    'vocabularyRange': vocabularyRange,
+    'taskCompletion': taskCompletion,
+    'highlights': highlights,
+    'focusAreas': focusAreas,
+    'wrongLanguageDetected': wrongLanguageDetected,
+  };
+
+  /// Deserialize from persistent cache storage.
+  factory EvaluationResult.fromJson(Map<String, dynamic> json) {
+    return EvaluationResult(
+      score: (json['score'] as num).toDouble(),
+      passed: json['passed'] as bool,
+      feedback: json['feedback'] as String? ?? '',
+      specificIssue: json['specificIssue'] as String?,
+      celebration: json['celebration'] as String?,
+      modelAnswer: json['modelAnswer'] as String?,
+      missingWords: List<String>.from(json['missingWords'] as List? ?? []),
+      vocabularyHit: List<String>.from(json['vocabularyHit'] as List? ?? []),
+      vocabularyMiss: List<String>.from(json['vocabularyMiss'] as List? ?? []),
+      gapFilledCorrectly: json['gapFilledCorrectly'] as bool?,
+      spokeFullSentence: json['spokeFullSentence'] as bool?,
+      correctFullSentence: json['correctFullSentence'] as String?,
+      isEmpty: json['isEmpty'] as bool? ?? false,
+      chatReply: json['chatReply'] as String?,
+      isConversationComplete: json['isConversationComplete'] as bool?,
+      fluency: (json['fluency'] as num?)?.toDouble(),
+      vocabularyRange: (json['vocabularyRange'] as num?)?.toDouble(),
+      taskCompletion: (json['taskCompletion'] as num?)?.toDouble(),
+      highlights: List<String>.from(json['highlights'] as List? ?? []),
+      focusAreas: List<String>.from(json['focusAreas'] as List? ?? []),
+      wrongLanguageDetected: json['wrongLanguageDetected'] as bool? ?? false,
+    );
+  }
 }
 
 /// What to do after an evaluation.

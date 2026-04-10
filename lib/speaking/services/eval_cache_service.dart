@@ -1,49 +1,155 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/speaking_models.dart';
+import 'speech_service.dart';
 
-/// Implements Phase 7.2 of the Spec: Caching Common Evaluations.
+/// Persistent evaluation cache using SharedPreferences.
 ///
-/// Prevents the Gemini API from being hammered when users attempt
-/// the exact same phrases repeatedly during a session, mitigating
-/// QuotaExceeded errors.
+/// Cache key is derived from: stepId + targetPhrase + normalizedTranscript + cefrLevel
+/// This means the same learner speaking the same phrase for the same step
+/// gets a cached result across sessions — eliminating redundant API calls.
+///
+/// Eviction policy: LRU-approximated via timestamp. Max 500 entries.
+/// Free conversation turns are never cached (non-deterministic).
 class EvalCacheService {
-  EvalCacheService._();
+  static const _prefix = 'eval_cache_v2_';
+  static const _timestampPrefix = 'eval_ts_v2_';
+  static const _maxEntries = 500;
 
-  // In-memory cache for the duration of the session
-  static final Map<String, EvaluationResult> _cache = {};
+  // In-memory layer for current session (avoids SharedPreferences overhead
+  // on repeated attempts within the same session)
+  static final Map<String, EvaluationResult> _sessionCache = {};
 
-  static String _generateKey(
-      LessonStep step, String transcript, GeminiSessionContext ctx) {
-    final rawKey =
-        '${step.id}|${step.targetPhrase}|${transcript.trim().toLowerCase()}|${ctx.learnerLevel.label}';
-    return base64Encode(utf8.encode(rawKey));
+  // ─── Key Construction ──────────────────────────────────────────
+
+  static String _buildKey(LessonStep step, String transcript, CEFRLevel level) {
+    final normalized = SpeechService.normalize(transcript);
+    final raw =
+        '${step.id}|${step.targetPhrase ?? ""}|$normalized|${level.label}';
+    // Base64 encodes to make it safe as a SharedPreferences key
+    final encoded = base64Url.encode(utf8.encode(raw));
+    return _prefix + encoded;
   }
 
-  /// Attempts to retrieve a formally cached API response.
-  static EvaluationResult? getCachedResult(
-      LessonStep step, String transcript, GeminiSessionContext ctx) {
-    // Dynamic open-ended conversations should not be cached
+  // ─── Public API ────────────────────────────────────────────────
+
+  /// Returns a cached [EvaluationResult] if one exists, or null.
+  /// Checks in-memory session cache first, then SharedPreferences.
+  static Future<EvaluationResult?> get(
+    LessonStep step,
+    String transcript,
+    CEFRLevel level,
+  ) async {
+    // Never cache free conversation — responses depend on conversation history
     if (step.type == StepType.freeConversation) return null;
 
-    final key = _generateKey(step, transcript, ctx);
-    return _cache[key];
+    final key = _buildKey(step, transcript, level);
+
+    // 1. Check session cache (instant)
+    if (_sessionCache.containsKey(key)) {
+      return _sessionCache[key];
+    }
+
+    // 2. Check persistent cache
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null) return null;
+
+      final result = EvaluationResult.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      // Warm up session cache
+      _sessionCache[key] = result;
+      return result;
+    } catch (_) {
+      // Corrupt cache entry — treat as miss
+      return null;
+    }
   }
 
-  /// Saves the evaluation outcome to memory.
-  static void cacheResult(LessonStep step, String transcript,
-      GeminiSessionContext ctx, EvaluationResult result) {
+  /// Stores an [EvaluationResult] in both caches.
+  /// Does NOT cache: empty results, very low scores (garbage audio),
+  /// or free conversation turns.
+  static Future<void> set(
+    LessonStep step,
+    String transcript,
+    CEFRLevel level,
+    EvaluationResult result,
+  ) async {
     if (step.type == StepType.freeConversation) return;
+    if (result.isEmpty) return;
+    if (result.score < 0.15) return; // Garbage audio — do not cache
 
-    // We only cache if it was a decent attempt (good or bad)
-    // Don't cache garbage audio or empty hits so they get freshly evaluated if retried.
-    if (result.isEmpty || (!result.passed && result.score < 0.2)) return;
+    final key = _buildKey(step, transcript, level);
 
-    final key = _generateKey(step, transcript, ctx);
-    _cache[key] = result;
+    // Update session cache immediately (synchronous)
+    _sessionCache[key] = result;
+
+    // Persist asynchronously
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Evict oldest entries if at capacity
+      await _evictIfNeeded(prefs);
+
+      await prefs.setString(key, jsonEncode(result.toJson()));
+      // Record timestamp for LRU eviction
+      await prefs.setInt(
+        _timestampPrefix + key,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } catch (_) {
+      // Cache write failure is non-fatal — evaluation result is still valid
+    }
   }
-  
-  /// Exposes cache clear functionality if needed across lesson sweeps.
-  static void clearCache() {
-    _cache.clear();
+
+  /// Clears only the in-memory session cache (call on lesson restart).
+  static void clearSessionCache() {
+    _sessionCache.clear();
+  }
+
+  /// Clears ALL cached evaluations including persistent storage.
+  /// Use only for debugging or account reset.
+  static Future<void> clearAll() async {
+    _sessionCache.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys()
+          .where((k) => k.startsWith(_prefix) || k.startsWith(_timestampPrefix))
+          .toList();
+      for (final key in keys) {
+        await prefs.remove(key);
+      }
+    } catch (_) {}
+  }
+
+  // ─── Internal ──────────────────────────────────────────────────
+
+  /// Evicts the oldest entry if cache is at maximum capacity.
+  static Future<void> _evictIfNeeded(SharedPreferences prefs) async {
+    final cacheKeys = prefs
+        .getKeys()
+        .where((k) => k.startsWith(_prefix))
+        .toList();
+
+    if (cacheKeys.length < _maxEntries) return;
+
+    // Find oldest entry by timestamp
+    String? oldestKey;
+    int oldestTime = DateTime.now().millisecondsSinceEpoch;
+
+    for (final key in cacheKeys) {
+      final ts = prefs.getInt(_timestampPrefix + key) ?? 0;
+      if (ts < oldestTime) {
+        oldestTime = ts;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey != null) {
+      await prefs.remove(oldestKey);
+      await prefs.remove(_timestampPrefix + oldestKey);
+    }
   }
 }

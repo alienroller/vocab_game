@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../../providers/profile_provider.dart';
 import '../../theme/app_theme.dart';
 import '../models/speaking_models.dart';
+import '../models/scripted_conversation.dart';
 import '../services/context_builder.dart';
 import '../services/evaluation_engine.dart';
 import '../services/speech_service.dart';
@@ -21,7 +22,7 @@ import '../widgets/step_widgets.dart';
 /// Main speaking lesson screen — the orchestrator.
 ///
 /// Manages the full lesson flow: step rendering, mic recording,
-/// Gemini evaluation, feedback display, and progression.
+/// local evaluation, feedback display, and progression.
 class SpeakingLessonScreen extends ConsumerStatefulWidget {
   final SpeakingLesson lesson;
 
@@ -58,6 +59,11 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
   final _scrollController = ScrollController();
   Timer? _recordingTimer;
 
+  // Scripted conversation state
+  // Tracks which node in the script the user is currently on
+  // ignore: unused_field
+  int _scriptedNodeIndex = 0;
+
   // ─── Getters ──────────────────────────────────────────────────────
 
   LessonStep get _currentStep =>
@@ -77,6 +83,8 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
       progress: _progress,
       currentStep: _currentStep,
     );
+    // Register all scripted conversations so evaluator can look them up
+    ScriptedConversationRegistry.registerAll();
     _initServices();
   }
 
@@ -97,6 +105,35 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
       setState(() => _useTextInput = true);
     }
     setState(() => _micState = MicState.ready);
+
+    // For scripted conversation steps, speak the opening AI line
+    await _initializeStepConversation();
+  }
+
+  /// If the current step is a scripted conversation, pre-populate
+  /// the opening AI message and speak it via TTS.
+  Future<void> _initializeStepConversation() async {
+    if (_currentStep.type == StepType.freeConversation) {
+      final script = ScriptedConversationRegistry.get(_currentStep.id);
+      if (script != null) {
+        final openingLine = script.firstNode.aiUtterance;
+        // Add to chat history as model turn
+        if (mounted) {
+          setState(() {
+            _chatHistory.add(ConversationTurn(
+              role: ConversationRole.model,
+              text: openingLine,
+            ));
+          });
+        }
+        // Speak the opening line
+        await _ttsService.speak(
+          text: openingLine,
+          languageCode: widget.lesson.languageCode,
+          level: widget.lesson.cefrLevel,
+        );
+      }
+    }
   }
 
   // ─── TTS ──────────────────────────────────────────────────────────
@@ -251,34 +288,45 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
     );
 
     if (outcome.action == StepAction.continueConversation) {
+      // Append user turn
       setState(() {
-        _chatHistory = [
-          ..._chatHistory,
-          ConversationTurn(role: ConversationRole.user, text: transcript),
-        ];
-
-        if (result.chatReply != null) {
-          _chatHistory = [
-            ..._chatHistory,
-            ConversationTurn(role: ConversationRole.model, text: result.chatReply!),
-          ];
-        }
-
-        _micState = MicState.ready;
-        _interimTranscript = '';
-        _finalTranscript = '';
-        _textController.clear();
+        _chatHistory.add(ConversationTurn(
+          role: ConversationRole.user,
+          text: transcript,
+        ));
       });
 
-      // Automatically play AI's response
+      // The nextAiUtterance is in result.chatReply
       if (result.chatReply != null) {
+        final aiReply = result.chatReply!;
+
+        // Append model turn
+        setState(() {
+          _chatHistory.add(ConversationTurn(
+            role: ConversationRole.model,
+            text: aiReply,
+          ));
+          _scriptedNodeIndex++; // Advance to next node
+        });
+
+        // Speak the AI reply via TTS
         await _ttsService.speak(
-          text: result.chatReply!,
+          text: aiReply,
           languageCode: widget.lesson.languageCode,
           level: widget.lesson.cefrLevel,
         );
       }
-      return; // Early return, don't show feedback block
+
+      // Reset mic to ready for next user turn
+      setState(() {
+        _micState = MicState.ready;
+        _interimTranscript = '';
+        _finalTranscript = '';
+        _currentResult = null;
+        _currentOutcome = null;
+        _textController.clear();
+      });
+      return; // Do not show feedback card — conversation continues
     }
 
     // Process evaluation for completed conversations or standard steps
@@ -380,6 +428,9 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
       _hasPlayedAudio = false;
       _chatHistory = []; // Reset history for next step
 
+      // Reset scripted conversation state for the new step
+      _scriptedNodeIndex = 0;
+
       // Rebuild context for new step
       _ctx = ContextBuilder.build(
         lesson: widget.lesson,
@@ -387,6 +438,9 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
         currentStep: _currentStep,
       );
     });
+
+    // Initialize conversation if new step is a scripted conversation
+    _initializeStepConversation();
   }
 
   Future<void> _completelesson() async {

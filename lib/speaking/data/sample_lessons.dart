@@ -223,11 +223,20 @@ class SampleLessons {
     xpReward: 100,
     steps: [
       LessonStep(
-        id: 'rest_1',
+        id: 'restaurant_conv_1', // Must match ScriptedConversationRegistry key
         type: StepType.freeConversation,
-        instruction: 'Have a conversation with the waiter to order lunch.',
-        targetPhrase: 'a friendly and accommodating waiter at a bustling American diner', // Persona
-        promptQuestion: 'The customer just sat down. Welcome them and ask what they want to drink. They want to order a burger.', // Scenario
+        instruction: 'Have a conversation with the waiter at Joe\'s Diner.',
+        // targetPhrase and promptQuestion are still used for display in FreeConversationStep widget
+        targetPhrase: 'You are a friendly waiter at Joe\'s Diner.',
+        promptQuestion: 'Order food and a drink. Confirm your order politely.',
+        expectedKeywords: ['order', 'like', 'want', 'please', 'thank'],
+        hints: [
+          'Start by saying what food you want.',
+          'Try: "I\'d like a burger, please."',
+          'End with: "No, that\'s all. Thank you!"',
+        ],
+        minAccuracyToPass: 0.65,
+        maxAttempts: 4,
       ),
     ],
   );
