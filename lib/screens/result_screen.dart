@@ -46,7 +46,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
     super.initState();
     _syncProfile();
 
-    final percent = widget.score / widget.total;
+    final percent = widget.total > 0 ? widget.score / widget.total : 0.0;
 
     // Ring animation
     _ringCtrl = AnimationController(
@@ -110,7 +110,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isSuccess = (widget.score / widget.total) >= 0.7;
+    final isSuccess = widget.total > 0 && (widget.score / widget.total) >= 0.7;
 
     final successColor = AppTheme.success;
     final tryAgainColor = AppTheme.amber;
@@ -204,7 +204,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${(widget.score / widget.total * 100).round()}% correct',
+                      '${widget.total > 0 ? (widget.score / widget.total * 100).round() : 0}% correct',
                       style: TextStyle(
                         fontSize: 16,
                         color: isDark

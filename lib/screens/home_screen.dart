@@ -523,7 +523,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 )),
                             const SizedBox(height: 6),
                             Text(
-                              'Tap the Search tab to add your first words!',
+                              'Tap the + button to add your first words!',
                               style: TextStyle(
                                 color: isDark
                                     ? AppTheme.textSecondaryDark
@@ -596,7 +596,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go('/search'),
+        onPressed: () => context.push('/search'),
         backgroundColor: AppTheme.violet,
         foregroundColor: Colors.white,
         elevation: 8,

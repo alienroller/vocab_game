@@ -26,6 +26,9 @@ import 'screens/profile_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/teacher_dashboard_screen.dart';
+import 'speaking/models/speaking_models.dart';
+import 'speaking/screens/speaking_home_screen.dart';
+import 'speaking/screens/speaking_lesson_screen.dart';
 
 /// Smooth fade + slide page transition for all routes.
 CustomTransitionPage<void> _buildPage(Widget child, GoRouterState state) {
@@ -168,19 +171,19 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
 
-        // Tab 2: Search
+        // Tab 2: Speaking
         StatefulShellBranch(
-          navigatorKey: _searchNavKey,
+          navigatorKey: _searchNavKey, // re-used navKey for convenience without breaking global root scope
           routes: [
             GoRoute(
-              path: '/search',
+              path: '/speaking',
               pageBuilder: (_, state) =>
-                  _buildPage(const SearchScreen(), state),
+                  _buildPage(const SpeakingHomeScreen(), state),
             ),
           ],
         ),
 
-        // Tab 2: Duels
+        // Tab 3: Duels
         StatefulShellBranch(
           navigatorKey: _duelsNavKey,
           routes: [
@@ -192,7 +195,7 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
 
-        // Tab 3: Profile
+        // Tab 5: Profile
         StatefulShellBranch(
           navigatorKey: _profileNavKey,
           routes: [
@@ -237,9 +240,37 @@ final GoRouter appRouter = GoRouter(
       pageBuilder: (_, state) =>
           _buildPage(const FillBlankGame(), state),
     ),
+
+    // ─── Search Overlay ──────────────────────────────────────────
+    GoRoute(
+      path: '/search',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const SearchScreen(), state),
+    ),
+
+    GoRoute(
+      path: '/speaking/lesson',
+      parentNavigatorKey: _rootNavigatorKey,
+      redirect: (context, state) {
+        if (state.extra is! SpeakingLesson) return '/speaking';
+        return null;
+      },
+      pageBuilder: (_, state) {
+        final lesson = state.extra as SpeakingLesson;
+        return _buildPage(
+          SpeakingLessonScreen(lesson: lesson),
+          state,
+        );
+      },
+    ),
     GoRoute(
       path: '/result',
       parentNavigatorKey: _rootNavigatorKey,
+      redirect: (context, state) {
+        if (state.extra is! Map<String, dynamic>) return '/home';
+        return null; // safe to proceed
+      },
       pageBuilder: (_, state) {
         final args = state.extra as Map<String, dynamic>;
         return _buildPage(
@@ -265,6 +296,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/duels/game',
       parentNavigatorKey: _rootNavigatorKey,
+      redirect: (context, state) {
+        if (state.extra is! Map<String, dynamic>) return '/duels';
+        return null;
+      },
       pageBuilder: (_, state) {
         final args = state.extra as Map<String, dynamic>;
         return _buildPage(
@@ -280,6 +315,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/duels/results',
       parentNavigatorKey: _rootNavigatorKey,
+      redirect: (context, state) {
+        if (state.extra is! Map<String, dynamic>) return '/duels';
+        return null;
+      },
       pageBuilder: (_, state) {
         final args = state.extra as Map<String, dynamic>;
         return _buildPage(
@@ -307,6 +346,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/teacher-dashboard',
       parentNavigatorKey: _rootNavigatorKey,
+      redirect: (context, state) {
+        if (state.extra is! String) return '/profile';
+        return null;
+      },
       pageBuilder: (_, state) {
         final classCode = state.extra as String;
         return _buildPage(

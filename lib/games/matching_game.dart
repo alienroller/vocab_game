@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/word_session_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -74,6 +75,12 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
     if (_selectedLeft != null && _selectedRight != null) {
       _moves++;
       final isMatch = _selectedLeft!.id == _selectedRight!.id;
+
+      // Record for spaced repetition mastery
+      WordSessionService.recordAnswer(
+        wordId: _selectedLeft!.id,
+        isCorrect: isMatch,
+      );
 
       if (isMatch) {
         final matchedId = _selectedLeft!.id;

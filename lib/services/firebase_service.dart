@@ -210,6 +210,6 @@ class FirebaseService {
   static Future<void> unsubscribeFCMTopics() async {
     try {
       await FirebaseMessaging.instance.unsubscribeFromTopic(_topic);
-    } catch (_, __) {}
+    } catch (_) {}
   }
 }

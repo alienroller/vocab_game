@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/word_session_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -55,6 +56,18 @@ class _QuizGameState extends ConsumerState<QuizGame>
       
     final selectedDistractors = distractors.take(3).map((v) => v.uzbek).toList();
     
+    // Fallback if the user has < 4 total words in their entire dictionary
+    if (selectedDistractors.length < 3) {
+      final fallbacks = ['olma', 'kitob', 'mashina', 'uy', 'qalam', 'maktab', 'suv', 'non'];
+      fallbacks.shuffle(random);
+      while (selectedDistractors.length < 3 && fallbacks.isNotEmpty) {
+        final f = fallbacks.removeLast();
+        if (f != currentWord.uzbek && !selectedDistractors.contains(f)) {
+          selectedDistractors.add(f);
+        }
+      }
+    }
+    
     _currentOptions = [currentWord.uzbek, ...selectedDistractors];
     _currentOptions.shuffle(random);
     _answered = false;
@@ -67,6 +80,12 @@ class _QuizGameState extends ConsumerState<QuizGame>
     
     final selectedUzbek = _currentOptions[index];
     final isCorrect = selectedUzbek == _quizVocab[_currentIndex].uzbek;
+
+    // Record for spaced repetition mastery
+    WordSessionService.recordAnswer(
+      wordId: _quizVocab[_currentIndex].id,
+      isCorrect: isCorrect,
+    );
 
     // Calculate XP for this answer
     final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;

@@ -4,6 +4,7 @@ import '../models/vocab.dart';
 class StorageService {
   static const String boxName = 'vocabBox';
   static const String _typedBoxName = 'vocabTypedBox';
+
   static late Box<Vocab> _box;
 
   static Future<void> init() async {

@@ -34,6 +34,9 @@ void main() async {
 
   await LocalStorageProvider.init();
 
+  // Validate build-time constants before using them
+  EnvironmentConstants.validate();
+
   // Initialize Supabase
   await Supabase.initialize(url: EnvironmentConstants.url, anonKey: EnvironmentConstants.anonKey);
 
@@ -85,6 +88,9 @@ void _checkStreakOnOpen() {
   // Persist any streak reset back to Hive
   profileBox.put('streakDays', profile.streakDays);
 
+  // Reset weekXp if a new calendar week (Monday-to-Sunday) has started
+  _resetWeekXpIfNeeded(profileBox, profile);
+
   // Show streak warning notification if they haven't played today
   final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
   if (profile.lastPlayedDate != today && profile.streakDays >= 2) {
@@ -93,6 +99,30 @@ void _checkStreakOnOpen() {
 
   // Subscribe to incoming duel challenges
   _subscribeToDuelChallenges(id);
+}
+
+/// Returns the ISO date string of the current week's Monday.
+String _currentMonday() {
+  final now = DateTime.now();
+  final monday = now.subtract(Duration(days: now.weekday - 1));
+  return DateFormat('yyyy-MM-dd').format(monday);
+}
+
+/// Resets weekXp to 0 if a new calendar week has started since the last reset.
+/// Persists the reset to Hive and queues a Supabase sync.
+void _resetWeekXpIfNeeded(Box profileBox, UserProfile profile) {
+  final monday = _currentMonday();
+  final lastResetMonday = profileBox.get('weekXpResetDate') as String?;
+
+  if (lastResetMonday == monday) return; // Same week — nothing to do
+
+  // New week has started (or first time tracking) — reset weekXp
+  profile.weekXp = 0;
+  profileBox.put('weekXp', 0);
+  profileBox.put('weekXpResetDate', monday);
+
+  // Sync the reset to Supabase so the weekly leaderboard is accurate
+  SyncService.syncProfile(profile);
 }
 
 void _subscribeToDuelChallenges(String myId) {

@@ -54,6 +54,14 @@ class GameSelectionScreen extends ConsumerWidget {
 
     final games = [
       _GameData(
+        title: 'Speaking Practice',
+        icon: Icons.mic_rounded,
+        emoji: '🎙️',
+        description: 'AI-powered pronunciation & conversation',
+        route: '/speaking',
+        gradient: const [Color(0xFF7C4DFF), Color(0xFF3F1DCB)],
+      ),
+      _GameData(
         title: 'Flashcards',
         icon: Icons.style_rounded,
         emoji: '🃏',

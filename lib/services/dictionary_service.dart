@@ -292,13 +292,7 @@ class DictionaryService {
     return _wordCache!.length;
   }
 
-  Future<int> getTotalOfflineWordCount() async {
-    if (!_bundleLoaded) await loadBundle();
-    final cachedCount = await getCachedWordCount();
-    // Bundle words are always available; cache may have additional words
-    // not in the bundle (from Supabase/Google Translate lookups)
-    return _bundled.length + cachedCount;
-  }
+
 
   WordEntry _mergeEntries(List<WordEntry> entries) {
     if (entries.isEmpty) throw ArgumentError('Cannot merge empty list');

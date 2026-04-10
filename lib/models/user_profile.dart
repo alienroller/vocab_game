@@ -40,6 +40,9 @@ class UserProfile {
   /// Whether this user is a teacher (created at least one class).
   bool isTeacher = false;
 
+  /// Earned badges from gamification (e.g., Speaking Module summaries).
+  List<String> unlockedBadges = [];
+
   /// Accuracy percentage (0.0–1.0).
   double get accuracy =>
       totalWordsAnswered > 0 ? totalCorrect / totalWordsAnswered : 0.0;

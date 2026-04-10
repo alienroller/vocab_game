@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/standalone.dart';
-import 'package:timezone/timezone.dart' as tz;
+
 
 /// Local notification service for streak warnings, duel challenges,
 /// and leaderboard rivalry alerts.
@@ -100,109 +99,9 @@ class NotificationService {
     }
   }
 
-  // ─── Leaderboard Rivalry ────────────────────────────────────────
-
-  /// Notify when someone overtakes the user on the leaderboard.
-  static Future<void> notifyOvertaken(String byUsername) async {
-    try {
-      await _plugin.show(
-        1,
-        '⚡ $byUsername just passed you!',
-        'Open the game and reclaim your rank.',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'rivalry',
-            'Rivalry Alerts',
-            channelDescription: 'Leaderboard position change alerts',
-            importance: Importance.defaultImportance,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
-      );
-    } catch (e) {
-      debugPrint('Rivalry notification failed: $e');
-    }
-  }
-
-  /// Cancel all pending notifications.
-  static Future<void> cancelAll() async {
-    await _plugin.cancelAll();
-  }
-
-  Future<void> showNotification({int id = 404, String? title, String? body}) async {
-    try {
-      final androidDetails = AndroidNotificationDetails(
-        'notification',
-        'Vocab Game Notification',
-        importance: Importance.max,
-      );
-
-      final iosDetails = const DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
-
-      final notificationDetails = NotificationDetails(android: androidDetails, iOS: iosDetails);
-
-      String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
-
-      await _plugin.show(
-        id,
-        title,
-        body,
-        notificationDetails,
-        payload: payload,
-      );
-    } catch (e) {
-      debugPrint('notification failed: $e');
-    }
-  }
 
   static void _onDidReceiveNotificationResponse(NotificationResponse details) {
-    String? payload = details.payload;
-  }
-
-  static Future<void> schedule({
-    int id = 404,
-    required String title,
-    required String body,
-    TZDateTime? date,
-    Duration delay = const Duration(days: 1),
-    DateTimeComponents? repeat,
-  }) async {
-    final scheduledDate = date ?? tz.TZDateTime.now(tz.local).add(delay);
-
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'notification',
-        'Vocab Game Notification',
-        importance: Importance.max,
-        priority: Priority.high,
-      ),
-      iOS: const DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      ),
-    );
-
-    String? payload; // TODO(Do it later like this : payload = jsonEncode(data);)
-
-    await _plugin.zonedSchedule(
-      id,
-      title,
-      body,
-      scheduledDate,
-      details,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents: repeat,
-      payload: payload,
-    );
-  }
-
-  static Future<void> sendNotificationToOtherPlayer()async{
-    //TODO call supabase edge function. 
+    // Currently no-op. Payload could be used to route the user
+    // to a specific screen when they tap a notification.
   }
 }

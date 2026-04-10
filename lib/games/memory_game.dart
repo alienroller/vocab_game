@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../providers/vocab_provider.dart';
+import '../services/word_session_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -101,8 +102,15 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
 
       final idx1 = _flippedIndices[0];
       final idx2 = _flippedIndices[1];
+      final isMatch = _cards[idx1].pairId == _cards[idx2].pairId;
 
-      if (_cards[idx1].pairId == _cards[idx2].pairId) {
+      // Record for spaced repetition mastery (only record on the first attempt per pair to avoid spamming if they click multiple times, but memory game handles attempts per pair naturally)
+      WordSessionService.recordAnswer(
+        wordId: _cards[idx1].pairId,
+        isCorrect: isMatch,
+      );
+
+      if (isMatch) {
         // Match!
         _combo++;
         setState(() {

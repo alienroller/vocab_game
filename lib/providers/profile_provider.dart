@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
@@ -39,7 +40,8 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
           box.get('totalWordsAnswered', defaultValue: 0) as int
       ..totalCorrect = box.get('totalCorrect', defaultValue: 0) as int
       ..hasOnboarded = box.get('hasOnboarded', defaultValue: false) as bool
-      ..isTeacher = box.get('isTeacher', defaultValue: false) as bool;
+      ..isTeacher = box.get('isTeacher', defaultValue: false) as bool
+      ..unlockedBadges = (box.get('unlockedBadges', defaultValue: <String>[]) as List).cast<String>();
   }
 
   Future<void> _loadProfile() async {
@@ -70,6 +72,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('totalCorrect', 0);
     await box.put('hasOnboarded', true);
     await box.put('isTeacher', isTeacher);
+    await box.put('unlockedBadges', <String>[]);
 
     state = UserProfile()
       ..id = id
@@ -81,7 +84,8 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..totalWordsAnswered = 0
       ..totalCorrect = 0
       ..hasOnboarded = true
-      ..isTeacher = isTeacher;
+      ..isTeacher = isTeacher
+      ..unlockedBadges = [];
   }
 
   /// Creates a clone of the current profile with all fields copied.
@@ -98,39 +102,11 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..totalWordsAnswered = profile.totalWordsAnswered
       ..totalCorrect = profile.totalCorrect
       ..hasOnboarded = profile.hasOnboarded
-      ..isTeacher = profile.isTeacher;
+      ..isTeacher = profile.isTeacher
+      ..unlockedBadges = List.from(profile.unlockedBadges);
   }
 
-  /// Adds XP to the profile and updates the level.
-  Future<void> addXp(int amount) async {
-    if (state == null) return;
-    final profile = state!;
-    profile.xp += amount;
-    profile.weekXp += amount;
-    profile.level = XpService.levelFromXp(profile.xp);
 
-    await _saveToHive(profile);
-    state = _cloneProfile(profile);
-
-    // Sync to cloud immediately so leaderboard/rival data stays fresh
-    await SyncService.syncProfile(state!);
-  }
-
-  /// Records answers for a game session (batch update).
-  /// [totalQuestions] — total words answered in the session.
-  /// [correctAnswers] — number of correct answers.
-  Future<void> recordAnswers({
-    required int totalQuestions,
-    required int correctAnswers,
-  }) async {
-    if (state == null) return;
-    final profile = state!;
-    profile.totalWordsAnswered += totalQuestions;
-    profile.totalCorrect += correctAnswers;
-
-    await _saveToHive(profile);
-    state = _cloneProfile(profile);
-  }
 
   /// All-in-one post-game session handler.
   /// Adds XP, records per-word accuracy, and syncs to Supabase.
@@ -142,6 +118,9 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   }) async {
     if (state == null) return;
     final profile = state!;
+
+    // Reset weekXp if a new Monday has arrived since the last reset
+    _checkWeekReset(profile);
 
     // Update XP
     profile.xp += xpGained;
@@ -157,6 +136,23 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
 
     // Sync to cloud
     await SyncService.syncProfile(state!);
+  }
+
+  /// Resets weekXp to 0 if the current calendar week (Monday-based)
+  /// differs from the week when weekXp was last reset.
+  void _checkWeekReset(UserProfile profile) {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final currentMonday = DateFormat('yyyy-MM-dd').format(monday);
+
+    final box = Hive.box('userProfile');
+    final lastReset = box.get('weekXpResetDate') as String?;
+
+    if (lastReset != currentMonday) {
+      profile.weekXp = 0;
+      box.put('weekXp', 0);
+      box.put('weekXpResetDate', currentMonday);
+    }
   }
 
   /// Updates the streak after a game session.
@@ -205,6 +201,19 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     state = _cloneProfile(profile);
   }
 
+  /// Appends pushing a freshly awarded badge.
+  Future<void> awardBadge(String badgeName) async {
+    if (state == null) return;
+    final profile = state!;
+    
+    // Prevent duplicated identical badges
+    if (!profile.unlockedBadges.contains(badgeName)) {
+      profile.unlockedBadges.add(badgeName);
+      await _saveToHive(profile);
+      state = _cloneProfile(profile);
+    }
+  }
+
   /// Marks the user as a teacher.
   Future<void> setTeacher(bool isTeacher) async {
     if (state == null) return;
@@ -251,5 +260,6 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('totalCorrect', profile.totalCorrect);
     await box.put('hasOnboarded', profile.hasOnboarded);
     await box.put('isTeacher', profile.isTeacher);
+    await box.put('unlockedBadges', profile.unlockedBadges);
   }
 }

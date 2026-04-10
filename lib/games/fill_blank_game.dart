@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/word_session_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -68,10 +69,11 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
     int lettersToBlank = max(1, (_displayChars.length / 2).ceil());
     int blanked = 0;
 
-    // Don't blank out spaces or punctuation
+    // Don't blank out spaces or standard punctuation, but DO blank Uzbek letters and apostrophes
     final validIndices = <int>[];
+    final letterRegex = RegExp(r"[\p{L}'’‘ʻ]", unicode: true);
     for (int i = 0; i < _displayChars.length; i++) {
-      if (RegExp(r'[a-z]').hasMatch(_displayChars[i])) {
+      if (letterRegex.hasMatch(_displayChars[i])) {
         validIndices.add(i);
       }
     }
@@ -102,6 +104,12 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
     setState(() {
       _answered = true;
       _isCorrect = guess == _targetWord;
+
+      // Record for spaced repetition mastery
+      WordSessionService.recordAnswer(
+        wordId: _gameVocab[_currentIndex].id,
+        isCorrect: _isCorrect,
+      );
 
       if (_isCorrect) {
         _score++;

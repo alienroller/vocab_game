@@ -1,11 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../providers/duel_provider.dart';
 import '../theme/app_theme.dart';
 
 /// App shell with persistent bottom navigation bar.
@@ -13,50 +11,17 @@ import '../theme/app_theme.dart';
 /// 4 tabs: Home, Library, Duels, Profile.
 /// Each tab maintains its own navigation stack.
 /// Shows a badge dot on the Duels tab when incoming invites exist.
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
 
   const AppShell({super.key, required this.navigationShell});
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
-  int _duelInviteCount = 0;
-  Timer? _badgeTimer;
+class _AppShellState extends ConsumerState<AppShell> {
   DateTime? _lastBackPressTime;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkDuelInvites();
-    // Poll every 15s to update the badge
-    _badgeTimer = Timer.periodic(
-        const Duration(seconds: 15), (_) => _checkDuelInvites());
-  }
-
-  @override
-  void dispose() {
-    _badgeTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _checkDuelInvites() async {
-    final userId = Hive.box('userProfile').get('id') as String?;
-    if (userId == null) return;
-
-    try {
-      final data = await Supabase.instance.client
-          .from('duels')
-          .select('id')
-          .eq('opponent_id', userId)
-          .eq('status', 'pending');
-      if (mounted) {
-        setState(() => _duelInviteCount = (data as List).length);
-      }
-    } catch (_) {}
-  }
 
   void _onTap(int index) {
     widget.navigationShell.goBranch(
@@ -68,6 +33,9 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    // Watch pending duel invites for the badge
+    final duelInviteCount = ref.watch(duelInvitationsProvider).valueOrNull?.length ?? 0;
 
     return PopScope(
       canPop: false, // We will handle the pop manually
@@ -141,9 +109,9 @@ class _AppShellState extends State<AppShell> {
                   onTap: () => _onTap(1),
                 ),
                 _NavItem(
-                  icon: Icons.search_rounded,
-                  activeIcon: Icons.search_rounded,
-                  label: 'Search',
+                  icon: Icons.mic_none_rounded,
+                  activeIcon: Icons.mic_rounded,
+                  label: 'Speaking',
                   isActive: widget.navigationShell.currentIndex == 2,
                   onTap: () => _onTap(2),
                 ),
@@ -153,7 +121,7 @@ class _AppShellState extends State<AppShell> {
                   label: 'Duels',
                   isActive: widget.navigationShell.currentIndex == 3,
                   onTap: () => _onTap(3),
-                  badgeCount: _duelInviteCount,
+                  badgeCount: duelInviteCount,
                 ),
                 _NavItem(
                   icon: Icons.person_outline_rounded,

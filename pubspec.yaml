@@ -32,6 +32,11 @@ dependencies:
   http: ^1.6.0
   path: ^1.9.1
 
+  # --- Speaking module additions ---
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
+  permission_handler: ^11.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
