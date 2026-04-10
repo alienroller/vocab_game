@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app requires microphone access to record your speaking practice exercises and evaluate your pronunciation.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app requires speech recognition to transcribe your speaking practice and evaluate your conversational skills.</string>
 </dict>
 </plist>
