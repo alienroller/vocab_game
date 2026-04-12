@@ -14,6 +14,11 @@ import '../../services/word_session_service.dart';
 import '../../services/word_stats_service.dart';
 import '../../services/xp_service.dart';
 import '../../theme/app_theme.dart';
+import '../../games/quiz_game.dart';
+import '../../games/flashcard_game.dart';
+import '../../games/matching_game.dart';
+import '../../games/memory_game.dart';
+import '../../games/fill_blank_game.dart';
 
 /// Library screen — the student's entry point to all word content.
 ///
@@ -504,8 +509,8 @@ class _UnitListScreenState extends State<UnitListScreen> {
 // ─── Unit Game Selection Screen ──────────────────────────────────────
 
 /// Game selection screen specifically for Supabase unit words.
-/// Shows the same game types but uses pre-loaded words instead of Hive vocab.
-class UnitGameSelectionScreen extends StatelessWidget {
+/// Shows the 5 standard games adapting pre-loaded words.
+class UnitGameSelectionScreen extends StatefulWidget {
   final String unitTitle;
   final String unitId;
   final List<Vocab> words;
@@ -520,31 +525,59 @@ class UnitGameSelectionScreen extends StatelessWidget {
   });
 
   @override
+  State<UnitGameSelectionScreen> createState() => _UnitGameSelectionScreenState();
+}
+
+class _UnitGameSelectionScreenState extends State<UnitGameSelectionScreen> {
+  bool _isNavigating = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     final games = [
       {
-        'title': 'Quiz',
-        'icon': Icons.quiz,
-        'gradient': AppTheme.primaryGradient,
-        'description': 'Test your knowledge with multiple choice',
+        'title': 'Flashcards',
+        'icon': Icons.style_rounded,
+        'gradient': const [Color(0xFF4FC3F7), Color(0xFF0288D1)],
+        'description': 'Flip cards to memorize vocabulary',
+        'build': (_) => FlashcardGame(customWords: widget.words, assignmentId: widget.assignmentId),
       },
       {
-        'title': 'Flashcards',
-        'icon': Icons.style,
-        'gradient': const LinearGradient(
-          colors: [Color(0xFF2196F3), Color(0xFF1565C0)],
-        ),
-        'description': 'Flip cards to memorize vocabulary',
+        'title': 'Quiz',
+        'icon': Icons.quiz_rounded,
+        'gradient': const [Color(0xFF66BB6A), Color(0xFF2E7D32)],
+        'description': 'Test your knowledge with multiple choice',
+        'build': (_) => QuizGame(customWords: widget.words, assignmentId: widget.assignmentId),
+      },
+      {
+        'title': 'Matching',
+        'icon': Icons.join_inner_rounded,
+        'gradient': const [Color(0xFFFFB74D), Color(0xFFE65100)],
+        'description': 'Match English and Uzbek word pairs',
+        'build': (_) => MatchingGame(customWords: widget.words, assignmentId: widget.assignmentId),
+      },
+      {
+        'title': 'Memory',
+        'icon': Icons.grid_view_rounded,
+        'gradient': const [Color(0xFFCE93D8), Color(0xFF7B1FA2)],
+        'description': 'Find matching pairs in a grid',
+        'build': (_) => MemoryGame(customWords: widget.words, assignmentId: widget.assignmentId),
+      },
+      {
+        'title': 'Fill in Blank',
+        'icon': Icons.keyboard_rounded,
+        'gradient': const [Color(0xFFEF5350), Color(0xFFC62828)],
+        'description': 'Type the missing translated letters',
+        'build': (_) => FillBlankGame(customWords: widget.words, assignmentId: widget.assignmentId),
       },
     ];
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(unitTitle),
+        title: Text(widget.unitTitle),
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -557,7 +590,7 @@ class UnitGameSelectionScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Text(
-                  '${words.length} words loaded — choose a game:',
+                  '${widget.words.length} words loaded — choose a game:',
                   style: TextStyle(
                     color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                     fontSize: 14,
@@ -573,18 +606,16 @@ class UnitGameSelectionScreen extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final game = games[index];
                     return GestureDetector(
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        if (_isNavigating) return;
+                        setState(() => _isNavigating = true);
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => UnitQuizGame(
-                              unitId: unitId,
-                              unitTitle: unitTitle,
-                              words: words,
-                              assignmentId: assignmentId,
-                            ),
+                            builder: game['build'] as WidgetBuilder,
                           ),
                         );
+                        if (mounted) setState(() => _isNavigating = false);
                       },
                       child: Container(
                         padding: const EdgeInsets.all(20),
@@ -594,11 +625,15 @@ class UnitGameSelectionScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
-                                gradient: game['gradient'] as LinearGradient,
+                                gradient: LinearGradient(
+                                  colors: game['gradient'] as List<Color>,
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                                 borderRadius: BorderRadius.circular(14),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppTheme.violet.withValues(alpha: 0.2),
+                                    color: (game['gradient'] as List<Color>).first.withValues(alpha: 0.3),
                                     blurRadius: 8,
                                     offset: const Offset(0, 2),
                                   ),
@@ -652,543 +687,3 @@ class UnitGameSelectionScreen extends StatelessWidget {
     );
   }
 }
-
-// ─── Unit Quiz Game ──────────────────────────────────────────────────
-
-/// Quiz game that uses Supabase-loaded words with XP, mastery tracking,
-/// and speed bonuses.
-class UnitQuizGame extends ConsumerStatefulWidget {
-  final String unitId;
-  final String unitTitle;
-  final List<Vocab> words;
-  final String? assignmentId;
-
-  const UnitQuizGame({
-    super.key,
-    required this.unitId,
-    required this.unitTitle,
-    required this.words,
-    this.assignmentId,
-  });
-
-  @override
-  ConsumerState<UnitQuizGame> createState() => _UnitQuizGameState();
-}
-
-class _UnitQuizGameState extends ConsumerState<UnitQuizGame> {
-  late List<Vocab> _quizWords;
-  int _currentIndex = 0;
-  int _score = 0;
-  int _totalXp = 0;
-  List<String> _options = [];
-  bool _answered = false;
-  int? _selectedIndex;
-  late DateTime _questionStartTime;
-
-  @override
-  void initState() {
-    super.initState();
-    _quizWords = List.from(widget.words)..shuffle(Random());
-    _generateOptions();
-  }
-
-  void _generateOptions() {
-    final current = _quizWords[_currentIndex];
-    final distractors = widget.words
-        .where((v) => v.id != current.id)
-        .toList()
-      ..shuffle(Random());
-    final wrongAnswers =
-        distractors.take(3).map((v) => v.uzbek).toList();
-    _options = [current.uzbek, ...wrongAnswers]..shuffle(Random());
-    _answered = false;
-    _selectedIndex = null;
-    _questionStartTime = DateTime.now();
-  }
-
-  void _onAnswer(int index) {
-    if (_answered) return;
-
-    final isCorrect = _options[index] == _quizWords[_currentIndex].uzbek;
-    final elapsed =
-        DateTime.now().difference(_questionStartTime).inSeconds;
-    final secondsLeft = max(0, 20 - elapsed);
-
-    // Calculate XP via speed bonus
-    final streakDays =
-        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-    final xpGained = XpService.calculateXp(
-      correct: isCorrect,
-      secondsLeft: secondsLeft,
-      maxSeconds: 20,
-      streakDays: streakDays,
-    );
-
-    setState(() {
-      _answered = true;
-      _selectedIndex = index;
-      if (isCorrect) {
-        _score++;
-        _totalXp += xpGained;
-      }
-    });
-
-    // Record mastery for this word
-    WordSessionService.recordAnswer(
-      wordId: _quizWords[_currentIndex].id,
-      isCorrect: isCorrect,
-    );
-
-    // Record for teacher analytics
-    final profileBox = Hive.box('userProfile');
-    final studentId = profileBox.get('id') as String?;
-    final classCode = profileBox.get('classCode') as String?;
-    if (studentId != null) {
-      WordStatsService.recordWordAnswer(
-        studentId: studentId,
-        classCode: classCode,
-        wordEnglish: _quizWords[_currentIndex].english,
-        wordUzbek: _quizWords[_currentIndex].uzbek,
-        wasCorrect: isCorrect,
-      );
-    }
-
-    // Advance after short delay
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (!mounted) return;
-      if (_currentIndex < _quizWords.length - 1) {
-        setState(() {
-          _currentIndex++;
-          _generateOptions();
-        });
-      } else {
-        _finishGame();
-      }
-    });
-  }
-
-  Future<void> _finishGame() async {
-    // Use ProfileProvider as the single source of truth —
-    // handles XP, accuracy stats, Hive persistence, and Supabase sync.
-    await ref.read(profileProvider.notifier).recordGameSession(
-      xpGained: _totalXp,
-      totalQuestions: _quizWords.length,
-      correctAnswers: _score,
-    );
-
-    // Record assignment progress if this was an assignment session
-    if (widget.assignmentId != null) {
-      final profileBox = Hive.box('userProfile');
-      final studentId = profileBox.get('id') as String?;
-      final classCode = profileBox.get('classCode') as String?;
-      if (studentId != null && classCode != null) {
-        try {
-          await AssignmentService.updateAssignmentProgress(
-            assignmentId: widget.assignmentId!,
-            studentId: studentId,
-            classCode: classCode,
-            wordsMasteredDelta: _score,
-            totalWords: _quizWords.length,
-          );
-        } catch (_) {
-          // Non-critical — don't block result screen
-        }
-      }
-    }
-
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _UnitResultScreen(
-          unitTitle: widget.unitTitle,
-          score: _score,
-          total: _quizWords.length,
-          xpGained: _totalXp,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final current = _quizWords[_currentIndex];
-    final progress = (_currentIndex + 1) / _quizWords.length;
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: Text(widget.unitTitle),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Text(
-                '${_currentIndex + 1}/${_quizWords.length}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                // Progress bar
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 6,
-                    backgroundColor: isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.black.withValues(alpha: 0.06),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // XP counter
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Score: $_score',
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.amber.withValues(alpha: isDark ? 0.15 : 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text('⚡ $_totalXp XP',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.amber,
-                          )),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                // Question - glass card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-                  decoration: AppTheme.glassCard(isDark: isDark),
-                  child: Column(
-                    children: [
-                      Text(
-                        current.english,
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'What is the Uzbek translation?',
-                        style: TextStyle(
-                          color: isDark
-                              ? AppTheme.textSecondaryDark
-                              : AppTheme.textSecondaryLight,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                // Options - glass cards
-                ...List.generate(_options.length, (i) {
-                  Color getBg() {
-                    if (!_answered) {
-                      return isDark
-                          ? const Color(0xFF1E2140).withValues(alpha: 0.7)
-                          : Colors.white.withValues(alpha: 0.8);
-                    }
-                    if (_options[i] == current.uzbek) {
-                      return AppTheme.success.withValues(alpha: isDark ? 0.15 : 0.1);
-                    }
-                    if (i == _selectedIndex) {
-                      return AppTheme.error.withValues(alpha: isDark ? 0.15 : 0.1);
-                    }
-                    return isDark
-                        ? const Color(0xFF1E2140).withValues(alpha: 0.5)
-                        : Colors.white.withValues(alpha: 0.6);
-                  }
-
-                  Color getBorder() {
-                    if (!_answered) {
-                      return isDark
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.black.withValues(alpha: 0.06);
-                    }
-                    if (_options[i] == current.uzbek) return AppTheme.success;
-                    if (i == _selectedIndex) return AppTheme.error;
-                    return isDark
-                        ? Colors.white.withValues(alpha: 0.04)
-                        : Colors.black.withValues(alpha: 0.03);
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: GestureDetector(
-                      onTap: _answered ? null : () => _onAnswer(i),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: getBg(),
-                          borderRadius: AppTheme.borderRadiusMd,
-                          border: Border.all(color: getBorder(), width: 2),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppTheme.violet.withValues(alpha: 0.1),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                ['A', 'B', 'C', 'D'][i],
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.violet,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Text(
-                                _options[i],
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: i == _selectedIndex
-                                      ? FontWeight.w800
-                                      : FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            if (_answered && _options[i] == current.uzbek)
-                              const Icon(Icons.check_circle_rounded,
-                                  color: AppTheme.success, size: 22)
-                            else if (_answered && i == _selectedIndex && _options[i] != current.uzbek)
-                              const Icon(Icons.cancel_rounded,
-                                  color: AppTheme.error, size: 22),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Unit Result Screen ──────────────────────────────────────────────
-
-class _UnitResultScreen extends StatelessWidget {
-  final String unitTitle;
-  final int score;
-  final int total;
-  final int xpGained;
-
-  const _UnitResultScreen({
-    required this.unitTitle,
-    required this.score,
-    required this.total,
-    required this.xpGained,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final percent = total > 0 ? (score / total * 100).round() : 0;
-    final emoji = percent >= 80
-        ? '🏆'
-        : percent >= 50
-            ? '👍'
-            : '💪';
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(title: const Text('Results')),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.amber.withValues(alpha: 0.3),
-                        AppTheme.amber.withValues(alpha: 0.05),
-                      ],
-                    ),
-                    border: Border.all(
-                      color: AppTheme.amber.withValues(alpha: 0.3),
-                      width: 3,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.amber.withValues(alpha: 0.2),
-                        blurRadius: 16,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(emoji, style: const TextStyle(fontSize: 48)),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  '$score / $total correct',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$percent% accuracy',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: isDark
-                        ? AppTheme.textSecondaryDark
-                        : AppTheme.textSecondaryLight,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.amber.withValues(alpha: isDark ? 0.2 : 0.15),
-                        AppTheme.amber.withValues(alpha: isDark ? 0.08 : 0.05),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: AppTheme.amber.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Text(
-                    '+$xpGained XP',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.amber,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  unitTitle,
-                  style: TextStyle(
-                    color: isDark
-                        ? AppTheme.textSecondaryDark
-                        : AppTheme.textSecondaryLight,
-                  ),
-                ),
-                const Spacer(),
-                
-                // Back to Game (Pops to game selection)
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: AppTheme.primaryGradient,
-                      borderRadius: AppTheme.borderRadiusMd,
-                      boxShadow: AppTheme.shadowGlow(AppTheme.violet),
-                    ),
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.replay_rounded),
-                      label: const Text('Back to Game',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: AppTheme.borderRadiusMd,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                
-                // More Units (Pops back twice to UnitListScreen)
-                OutlinedButton.icon(
-                  onPressed: () {
-                    // Pop this result screen, and the game selection screen
-                    Navigator.of(context)..pop()..pop();
-                  },
-                  icon: const Icon(Icons.list_rounded),
-                  label: const Text('More Units',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 52),
-                    side: BorderSide(
-                      color: isDark 
-                          ? Colors.white.withValues(alpha: 0.2) 
-                          : Colors.black.withValues(alpha: 0.1),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Back to Home (Clears library stack and goes to home)
-                TextButton.icon(
-                  onPressed: () {
-                    // Clear the library navigator stack before switching to Home branch
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                    context.go('/home');
-                  },
-                  icon: const Icon(Icons.home_rounded),
-                  label: const Text('Back to Home',
-                      style: TextStyle(fontSize: 16)),
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 52),
-                    foregroundColor: isDark 
-                        ? AppTheme.textSecondaryDark 
-                        : AppTheme.textSecondaryLight,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-

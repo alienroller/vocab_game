@@ -161,12 +161,16 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: RefreshIndicator(
+          onRefresh: _loadData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // 1. Class Health Card
@@ -229,13 +233,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
 
               // 2. Teacher Message Card
               Container(
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                  ],
-                ),
+                decoration: AppTheme.glassCard(isDark: isDark),
                 child: Material(
                   color: Colors.transparent,
                   borderRadius: BorderRadius.circular(16),
@@ -294,36 +292,39 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 if (classesState.healthScore!.atRiskCount == 0)
                   const Text('✅ All students practiced recently', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
                 else
-                  ...classesState.students.where((s) => s.isAtRisk).take(5).map((student) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.red.withValues(alpha: 0.1),
-                      child: Text(student.username.isNotEmpty ? student.username[0].toUpperCase() : '?', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  ...classesState.students.where((s) => s.isAtRisk).take(5).map((student) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: AppTheme.glassCard(isDark: isDark),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.red.withValues(alpha: 0.1),
+                        child: Text(student.username.isNotEmpty ? student.username[0].toUpperCase() : '?', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      ),
+                      title: Text(student.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(student.lastPlayedDate == null ? 'Never played' : 'Last active: ${student.daysSinceActive} days ago', style: const TextStyle(color: Colors.red)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/teacher/student-detail', extra: student),
                     ),
-                    title: Text(student.username, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(student.lastPlayedDate == null ? 'Never played' : 'Last active: ${student.daysSinceActive} days ago', style: const TextStyle(color: Colors.red)),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/teacher/student-detail', extra: student),
                   )),
               ] else if (classesState.students.isNotEmpty && classesState.healthScore == null) ...[
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
+                Container(
+                  decoration: AppTheme.glassCard(isDark: isDark),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                       children: [
                         const Icon(Icons.warning_amber_rounded, color: Colors.orange),
                         const SizedBox(width: 12),
                         const Text('Health score unavailable — pull to refresh'),
                       ],
                     ),
-                  ),
                 ),
               ],
             ],
           ),
         ),
       ),
-    );
+    ));
   }
 
   Color _getColorForTier(String tier) {

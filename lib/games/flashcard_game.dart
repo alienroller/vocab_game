@@ -8,7 +8,10 @@ import 'package:go_router/go_router.dart';
 import 'game_streak_mixin.dart';
 
 class FlashcardGame extends ConsumerStatefulWidget {
-  const FlashcardGame({super.key});
+  final List<Vocab>? customWords;
+  final String? assignmentId;
+
+  const FlashcardGame({super.key, this.customWords, this.assignmentId});
 
   @override
   ConsumerState<FlashcardGame> createState() => _FlashcardGameState();
@@ -25,8 +28,8 @@ class _FlashcardGameState extends ConsumerState<FlashcardGame>
   void initState() {
     super.initState();
     _pageController = PageController();
-    final vocabList = ref.read(vocabProvider);
-    _shuffledVocab = List.from(vocabList)..shuffle(Random());
+    final List<Vocab> vocabList = widget.customWords ?? ref.read(vocabProvider);
+    _shuffledVocab = List<Vocab>.from(vocabList)..shuffle(Random());
     checkAndShowStreak();
   }
 

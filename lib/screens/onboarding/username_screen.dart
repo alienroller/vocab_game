@@ -1,28 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
-import '../../providers/profile_provider.dart';
-import '../../services/notification_service.dart';
 import '../../services/sync_service.dart';
 import '../../theme/app_theme.dart';
 
 /// Username selection screen during onboarding.
 ///
-/// Real-time uniqueness check (debounced 600ms). Creates a Supabase profile
-/// and local Hive profile on submit.
-class UsernameScreen extends ConsumerStatefulWidget {
+/// Real-time uniqueness check (debounced 600ms). Profile creation
+/// is deferred to PinSetupScreen when the PIN is chosen.
+class UsernameScreen extends StatefulWidget {
   const UsernameScreen({super.key});
 
   @override
-  ConsumerState<UsernameScreen> createState() => _UsernameScreenState();
+  State<UsernameScreen> createState() => _UsernameScreenState();
 }
 
-class _UsernameScreenState extends ConsumerState<UsernameScreen> {
+class _UsernameScreenState extends State<UsernameScreen> {
   final _controller = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   Timer? _debounce;
@@ -65,60 +60,16 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
 
     setState(() => _submitting = true);
 
-    try {
-      final username = _controller.text.trim();
-      final userId = const Uuid().v4();
+    final username = _controller.text.trim();
 
-      // Attempt Supabase insert FIRST (authoritative uniqueness check)
-      try {
-        await Supabase.instance.client.from('profiles').insert({
-          'id': userId,
-          'username': username,
-          'xp': 0,
-          'level': 1,
-          'streak_days': 0,
-          'is_teacher': _isTeacher,
-          'week_xp': 0,
-          'total_words_answered': 0,
-          'total_correct': 0,
-        });
-      } on PostgrestException catch (e) {
-        // Code 23505 = unique_violation (username taken by race condition)
-        if (e.code == '23505') {
-          if (mounted) {
-            setState(() {
-              _submitting = false;
-              _isAvailable = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('That username was just taken. Please choose another.'),
-              ),
-            );
-          }
-          return;
-        }
-        rethrow; // Re-throw other Supabase errors
-      }
-
-      // Only create local profile AFTER Supabase confirms success
-      await ref
-          .read(profileProvider.notifier)
-          .createProfile(id: userId, username: username, isTeacher: _isTeacher);
-
-      // Request notification permission (iOS + Android 13+)
-      await NotificationService.requestPermission();
-
-      if (mounted) {
-        context.push('/onboarding/pin', extra: _isTeacher);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error creating profile: $e')),
-        );
-        setState(() => _submitting = false);
-      }
+    // Defer actual profile creation to the PIN screen
+    if (mounted) {
+      context.push('/onboarding/pin', extra: {
+        'username': username,
+        'isTeacher': _isTeacher,
+      });
+      // Reset _submitting flag in case the user navigates back
+      setState(() => _submitting = false);
     }
   }
 

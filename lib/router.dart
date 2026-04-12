@@ -147,8 +147,10 @@ final GoRouter appRouter = GoRouter(
       path: '/onboarding/pin',
       parentNavigatorKey: _rootNavigatorKey,
       pageBuilder: (_, state) {
-        final isTeacher = state.extra as bool? ?? false;
-        return _buildPage(PinSetupScreen(isTeacher: isTeacher), state);
+        final args = state.extra as Map<String, dynamic>? ?? {};
+        final isTeacher = args['isTeacher'] as bool? ?? false;
+        final username = args['username'] as String? ?? '';
+        return _buildPage(PinSetupScreen(isTeacher: isTeacher, username: username), state);
       },
     ),
     GoRoute(

@@ -8,12 +8,18 @@ import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
+import '../services/assignment_service.dart';
+import '../providers/profile_provider.dart';
+import '../providers/assignment_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
 import 'game_streak_mixin.dart';
 
 class MatchingGame extends ConsumerStatefulWidget {
-  const MatchingGame({super.key});
+  final List<Vocab>? customWords;
+  final String? assignmentId;
+
+  const MatchingGame({super.key, this.customWords, this.assignmentId});
 
   @override
   ConsumerState<MatchingGame> createState() => _MatchingGameState();
@@ -44,15 +50,15 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
   }
 
   void _initGame() {
-    final allVocab = ref.read(vocabProvider);
-    _gameWords = List.from(allVocab)..shuffle(Random());
+    final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
+    _gameWords = List<Vocab>.from(allVocab)..shuffle(Random());
     // Use up to 6 pairs for a matching round
     if (_gameWords.length > 6) {
       _gameWords = _gameWords.sublist(0, 6);
     }
 
-    _leftColumn = List.from(_gameWords)..shuffle(Random());
-    _rightColumn = List.from(_gameWords)..shuffle(Random());
+    _leftColumn = List<Vocab>.from(_gameWords)..shuffle(Random());
+    _rightColumn = List<Vocab>.from(_gameWords)..shuffle(Random());
 
     _matchedIds.clear();
     _selectedLeft = null;
@@ -128,15 +134,45 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
         });
 
         if (_matchedIds.length == _gameWords.length) {
-          Future.delayed(const Duration(milliseconds: 500), () {
+          Future.delayed(const Duration(milliseconds: 500), () async {
             if (!mounted) return;
-            context.pushReplacement('/result', extra: {
-              'score': _score,
-              'total': _moves,
-              'gameName': 'Matching',
-              'gameRoute': '/games/matching',
-              'xpGained': _totalXp,
-            });
+
+            await ref.read(profileProvider.notifier).recordGameSession(
+              xpGained: _totalXp,
+              totalQuestions: _moves,
+              correctAnswers: _score,
+            );
+
+            if (widget.assignmentId != null) {
+              final profileBox = Hive.box('userProfile');
+              final studentId = profileBox.get('id') as String?;
+              final classCode = profileBox.get('classCode') as String?;
+              if (studentId != null && classCode != null) {
+                try {
+                  await AssignmentService.updateAssignmentProgress(
+                    assignmentId: widget.assignmentId!,
+                    studentId: studentId,
+                    classCode: classCode,
+                    wordsMasteredDelta: _score,
+                    totalWords: _gameWords.length,
+                  );
+                  ref.read(assignmentProvider.notifier).loadStudentAssignments(
+                    classCode: classCode,
+                    studentId: studentId,
+                  );
+                } catch (_) {}
+              }
+            }
+
+            if (mounted) {
+              context.pushReplacement('/result', extra: {
+                'score': _score,
+                'total': _moves,
+                'gameName': 'Matching',
+                'gameRoute': '/games/matching',
+                'xpGained': _totalXp,
+              });
+            }
           });
         }
       } else {

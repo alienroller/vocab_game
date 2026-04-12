@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
+import '../services/assignment_service.dart';
+import '../providers/profile_provider.dart';
+import '../providers/assignment_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
 import 'game_streak_mixin.dart';
@@ -28,7 +32,10 @@ class MemoryCard {
 }
 
 class MemoryGame extends ConsumerStatefulWidget {
-  const MemoryGame({super.key});
+  final List<Vocab>? customWords;
+  final String? assignmentId;
+
+  const MemoryGame({super.key, this.customWords, this.assignmentId});
 
   @override
   ConsumerState<MemoryGame> createState() => _MemoryGameState();
@@ -53,9 +60,9 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
   }
 
   void _initGame() {
-    final allVocab = ref.read(vocabProvider);
-    var selectedVocab = List.from(allVocab)..shuffle(Random());
-    if (selectedVocab.length > 6) {
+    final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
+    var selectedVocab = List<Vocab>.from(allVocab)..shuffle(Random());
+    if (widget.customWords == null && selectedVocab.length > 6) {
       selectedVocab = selectedVocab.sublist(0, 6); // Max 12 cards (3x4 grid)
     }
 
@@ -157,15 +164,46 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
 
         // Check win
         if (_cards.every((card) => card.isMatched)) {
-          Future.delayed(const Duration(milliseconds: 500), () {
+          Future.delayed(const Duration(milliseconds: 500), () async {
             if (!mounted) return;
-            context.pushReplacement('/result', extra: {
-              'score': _cards.length ~/ 2,
-              'total': _moves,
-              'gameName': 'Memory',
-              'gameRoute': '/games/memory',
-              'xpGained': _totalXp,
-            });
+
+            final score = _cards.length ~/ 2;
+            await ref.read(profileProvider.notifier).recordGameSession(
+              xpGained: _totalXp,
+              totalQuestions: _moves,
+              correctAnswers: score,
+            );
+
+            if (widget.assignmentId != null) {
+              final profileBox = Hive.box('userProfile');
+              final studentId = profileBox.get('id') as String?;
+              final classCode = profileBox.get('classCode') as String?;
+              if (studentId != null && classCode != null) {
+                try {
+                  await AssignmentService.updateAssignmentProgress(
+                    assignmentId: widget.assignmentId!,
+                    studentId: studentId,
+                    classCode: classCode,
+                    wordsMasteredDelta: score,
+                    totalWords: score,
+                  );
+                  ref.read(assignmentProvider.notifier).loadStudentAssignments(
+                    classCode: classCode,
+                    studentId: studentId,
+                  );
+                } catch (_) {}
+              }
+            }
+
+            if (mounted) {
+              context.pushReplacement('/result', extra: {
+                'score': score,
+                'total': _moves,
+                'gameName': 'Memory',
+                'gameRoute': '/games/memory',
+                'xpGained': _totalXp,
+              });
+            }
           });
         }
       } else {

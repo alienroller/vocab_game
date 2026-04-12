@@ -138,20 +138,18 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // 1. Class Info Card
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Container(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: Column(
+          children: [
+            // 1. Class Info Card
+            Padding(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: AppTheme.glassCard(isDark: isDark),
               child: Row(
                 children: [
                   Expanded(
@@ -214,11 +212,10 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
           ),
 
           // 3. Student Table
-          const Divider(height: 1),
           Expanded(
-            child: ListView.separated(
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 16),
               itemCount: sortedStudents.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, index) {
                 final student = sortedStudents[index];
                 
@@ -241,14 +238,17 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
                   accuracyColor = Colors.red;
                 }
 
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(width: 24, child: Text(rankDisplay, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
-                      const SizedBox(width: 12),
-                      Stack(
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  decoration: AppTheme.glassCard(isDark: isDark),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    leading: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(width: 24, child: Text(rankDisplay, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
+                        const SizedBox(width: 12),
+                        Stack(
                         children: [
                           CircleAvatar(
                             backgroundColor: AppTheme.violet.withValues(alpha: 0.2),
@@ -287,12 +287,12 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
                   onTap: () {
                     context.push('/teacher/student-detail', extra: student);
                   },
-                );
+                ));
               },
             ),
           ),
         ],
       ),
-    );
+    ));
   }
 }

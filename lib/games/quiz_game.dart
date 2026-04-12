@@ -8,12 +8,18 @@ import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
+import '../services/assignment_service.dart';
+import '../providers/profile_provider.dart';
+import '../providers/assignment_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
 import 'game_streak_mixin.dart';
 
 class QuizGame extends ConsumerStatefulWidget {
-  const QuizGame({super.key});
+  final List<Vocab>? customWords;
+  final String? assignmentId;
+
+  const QuizGame({super.key, this.customWords, this.assignmentId});
 
   @override
   ConsumerState<QuizGame> createState() => _QuizGameState();
@@ -36,11 +42,13 @@ class _QuizGameState extends ConsumerState<QuizGame>
   @override
   void initState() {
     super.initState();
-    _allVocab = ref.read(vocabProvider);
-    _quizVocab = List.from(_allVocab)..shuffle(Random());
-    if (_quizVocab.length > 10) {
+    final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
+    _allVocab = allVocab;
+    _quizVocab = List<Vocab>.from(_allVocab)..shuffle(Random());
+    if (widget.customWords == null && _quizVocab.length > 10) {
       _quizVocab = _quizVocab.sublist(0, 10);
     }
+
     _generateOptions();
     checkAndShowStreak();
   }
@@ -134,7 +142,7 @@ class _QuizGameState extends ConsumerState<QuizGame>
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    Future.delayed(const Duration(milliseconds: 1500), () async {
       if (!mounted) return;
       
       if (_currentIndex < _quizVocab.length - 1) {
@@ -144,13 +152,42 @@ class _QuizGameState extends ConsumerState<QuizGame>
         });
       } else {
         // Game Over
-        context.pushReplacement('/result', extra: {
-          'score': _score,
-          'total': _quizVocab.length,
-          'gameName': 'Quiz',
-          'gameRoute': '/games/quiz',
-          'xpGained': _totalXp,
-        });
+        await ref.read(profileProvider.notifier).recordGameSession(
+          xpGained: _totalXp,
+          totalQuestions: _quizVocab.length,
+          correctAnswers: _score,
+        );
+
+        if (widget.assignmentId != null) {
+          final profileBox = Hive.box('userProfile');
+          final studentId = profileBox.get('id') as String?;
+          final classCode = profileBox.get('classCode') as String?;
+          if (studentId != null && classCode != null) {
+            try {
+              await AssignmentService.updateAssignmentProgress(
+                assignmentId: widget.assignmentId!,
+                studentId: studentId,
+                classCode: classCode,
+                wordsMasteredDelta: _score,
+                totalWords: _quizVocab.length,
+              );
+              ref.read(assignmentProvider.notifier).loadStudentAssignments(
+                classCode: classCode,
+                studentId: studentId,
+              );
+            } catch (_) {}
+          }
+        }
+
+        if (mounted) {
+          context.pushReplacement('/result', extra: {
+            'score': _score,
+            'total': _quizVocab.length,
+            'gameName': 'Quiz',
+            'gameRoute': '/games/quiz',
+            'xpGained': _totalXp,
+          });
+        }
       }
     });
   }

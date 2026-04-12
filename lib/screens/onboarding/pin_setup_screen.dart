@@ -1,23 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../providers/profile_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/account_recovery_service.dart';
 import '../../theme/app_theme.dart';
 
 /// PIN setup screen — shown during onboarding after username selection.
 ///
-/// The user chooses a 6-digit PIN for account recovery.
-class PinSetupScreen extends StatefulWidget {
+/// The user chooses a 6-digit PIN for account recovery. Creates profile in Supabase and Hive.
+class PinSetupScreen extends ConsumerStatefulWidget {
   final bool isTeacher;
-  const PinSetupScreen({super.key, this.isTeacher = false});
+  final String username;
+  const PinSetupScreen({super.key, this.isTeacher = false, this.username = ''});
 
   @override
-  State<PinSetupScreen> createState() => _PinSetupScreenState();
+  ConsumerState<PinSetupScreen> createState() => _PinSetupScreenState();
 }
 
-class _PinSetupScreenState extends State<PinSetupScreen> {
+class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
   final _pinController = TextEditingController();
   final _confirmController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -37,28 +42,74 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
 
     setState(() => _saving = true);
 
-    final profileId = Hive.box('userProfile').get('id') as String;
-    final success = await AccountRecoveryService.savePin(
-      profileId: profileId,
-      pin: _pinController.text.trim(),
-    );
+    try {
+      final userId = const Uuid().v4();
 
-    if (!mounted) return;
+      // Ensure profile doesn't already exist (someone else could have taken it in the meantime)
+      // Attempt Supabase insert FIRST (authoritative uniqueness check)
+      try {
+        await Supabase.instance.client.from('profiles').insert({
+          'id': userId,
+          'username': widget.username,
+          'xp': 0,
+          'level': 1,
+          'streak_days': 0,
+          'is_teacher': widget.isTeacher,
+          'week_xp': 0,
+          'total_words_answered': 0,
+          'total_correct': 0,
+        });
+      } on PostgrestException catch (e) {
+        if (e.code == '23505') {
+          if (mounted) {
+            setState(() => _saving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Username was just taken by someone else. Please go back and choose another.'),
+              ),
+            );
+          }
+          return;
+        }
+        rethrow;
+      }
 
-    if (success) {
-      // Move to the next onboarding step
+      final success = await AccountRecoveryService.savePin(
+        profileId: userId,
+        pin: _pinController.text.trim(),
+      );
+
       if (!mounted) return;
 
-      if (widget.isTeacher) {
-        context.push('/onboarding/teacher-class-setup');
+      if (success) {
+        // Only create local profile AFTER Supabase confirms success
+        await ref
+            .read(profileProvider.notifier)
+            .createProfile(id: userId, username: widget.username, isTeacher: widget.isTeacher);
+
+        // Request notification permission (iOS + Android 13+)
+        await NotificationService.requestPermission();
+
+        if (!mounted) return;
+
+        if (widget.isTeacher) {
+          context.push('/onboarding/teacher-class-setup');
+        } else {
+          context.push('/onboarding/join-class');
+        }
       } else {
-        context.push('/onboarding/join-class');
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save PIN. Please try again.')),
+        );
       }
-    } else {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to save PIN. Please try again.')),
-      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error creating profile: $e')),
+        );
+        setState(() => _saving = false);
+      }
     }
   }
 

@@ -8,12 +8,18 @@ import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
+import '../services/assignment_service.dart';
+import '../providers/profile_provider.dart';
+import '../providers/assignment_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
 import 'game_streak_mixin.dart';
 
 class FillBlankGame extends ConsumerStatefulWidget {
-  const FillBlankGame({super.key});
+  final List<Vocab>? customWords;
+  final String? assignmentId;
+
+  const FillBlankGame({super.key, this.customWords, this.assignmentId});
 
   @override
   ConsumerState<FillBlankGame> createState() => _FillBlankGameState();
@@ -42,9 +48,9 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
   @override
   void initState() {
     super.initState();
-    final allVocab = ref.read(vocabProvider);
-    _gameVocab = List.from(allVocab)..shuffle(Random());
-    if (_gameVocab.length > 10) {
+    final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
+    _gameVocab = List<Vocab>.from(allVocab)..shuffle(Random());
+    if (widget.customWords == null && _gameVocab.length > 10) {
       _gameVocab = _gameVocab.sublist(0, 10);
     }
     _setupQuestion();
@@ -154,7 +160,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    Future.delayed(const Duration(milliseconds: 1500), () async {
       if (!mounted) return;
 
       if (_currentIndex < _gameVocab.length - 1) {
@@ -163,13 +169,42 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
           _setupQuestion();
         });
       } else {
-        context.pushReplacement('/result', extra: {
-          'score': _score,
-          'total': _gameVocab.length,
-          'gameName': 'Fill in the Blank',
-          'gameRoute': '/games/fill-blank',
-          'xpGained': _totalXp,
-        });
+        await ref.read(profileProvider.notifier).recordGameSession(
+          xpGained: _totalXp,
+          totalQuestions: _gameVocab.length,
+          correctAnswers: _score,
+        );
+
+        if (widget.assignmentId != null) {
+          final profileBox = Hive.box('userProfile');
+          final studentId = profileBox.get('id') as String?;
+          final classCode = profileBox.get('classCode') as String?;
+          if (studentId != null && classCode != null) {
+            try {
+              await AssignmentService.updateAssignmentProgress(
+                assignmentId: widget.assignmentId!,
+                studentId: studentId,
+                classCode: classCode,
+                wordsMasteredDelta: _score,
+                totalWords: _gameVocab.length,
+              );
+              ref.read(assignmentProvider.notifier).loadStudentAssignments(
+                classCode: classCode,
+                studentId: studentId,
+              );
+            } catch (_) {}
+          }
+        }
+
+        if (mounted) {
+          context.pushReplacement('/result', extra: {
+            'score': _score,
+            'total': _gameVocab.length,
+            'gameName': 'Fill in the Blank',
+            'gameRoute': '/games/fill-blank',
+            'xpGained': _totalXp,
+          });
+        }
       }
     });
   }

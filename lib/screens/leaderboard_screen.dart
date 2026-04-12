@@ -102,6 +102,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
       final globalFuture = supabase
           .from('profiles')
           .select('username, xp, level')
+          .eq('is_teacher', false) // Exclude teachers from global board
           .order('xp', ascending: false)
           .limit(100);
 
@@ -131,6 +132,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
         weekFuture = await supabase
             .from('profiles')
             .select('username, week_xp, level')
+            .eq('is_teacher', false) // Exclude teachers from global weekly board
             .order('week_xp', ascending: false)
             .limit(50);
       }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -33,6 +34,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   String? _rivalName;
   int _rivalXp = 0; // store rival's actual XP, calculate gap live in build()
   TeacherMessage? _teacherMessage;
+  Timer? _pollTimer;
+  bool _isLaunchingAssignment = false;
 
   @override
   void initState() {
@@ -43,6 +46,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
     _fetchRival();
     _checkStreakMilestone();
+
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        _loadClassData();
+        _fetchRival();
+      }
+    });
   }
 
   void _loadClassData() async {
@@ -63,6 +73,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
     super.dispose();
   }
 
@@ -70,6 +81,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _fetchRival(); // re-fetch rival when returning from a game
+      _loadClassData(); // fetch new assignments if teacher added them
     }
   }
 
@@ -352,7 +364,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                       return GestureDetector(
                         onTap: () async {
-                          if (isCompleted) return; // Already done
+                          if (isCompleted || _isLaunchingAssignment) return; // Already done or locked
+                          setState(() => _isLaunchingAssignment = true);
                           try {
                             // Fetch words for the assigned unit (same as library)
                             final words = await WordSessionService.selectSessionWords(
@@ -376,7 +389,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 .toList();
                             if (!context.mounted) return;
                             // Navigate to game selection (reuse library's screen)
-                            Navigator.push(
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (_) => UnitGameSelectionScreen(
@@ -393,6 +406,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 SnackBar(content: Text('Error loading assignment: $e')),
                               );
                             }
+                          } finally {
+                            if (mounted) setState(() => _isLaunchingAssignment = false);
                           }
                         },
                         child: Container(
@@ -681,60 +696,78 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
               // ─── Vocab List ─────────────────────────────────────
               Expanded(
-                child: vocabList.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                child: RefreshIndicator(
+                  color: AppTheme.violet,
+                  onRefresh: () async {
+                    _loadClassData();
+                    _fetchRival();
+                    // Optional small delay for tactile feedback
+                    await Future.delayed(const Duration(milliseconds: 500));
+                  },
+                  child: vocabList.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppTheme.violet
-                                    .withValues(alpha: isDark ? 0.1 : 0.06),
-                              ),
-                              child: Icon(
-                                Icons.menu_book_rounded,
-                                size: 56,
-                                color: AppTheme.violet
-                                    .withValues(alpha: 0.5),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            Text('No vocabulary yet',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                )),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Tap the + button to add your first words!',
-                              style: TextStyle(
-                                color: isDark
-                                    ? AppTheme.textSecondaryDark
-                                    : AppTheme.textSecondaryLight,
+                            SizedBox(
+                              height: 300,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(20),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: AppTheme.violet
+                                            .withValues(alpha: isDark ? 0.1 : 0.06),
+                                      ),
+                                      child: Icon(
+                                        Icons.menu_book_rounded,
+                                        size: 56,
+                                        color: AppTheme.violet
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Text('No vocabulary yet',
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        )),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Tap the + button to add your first words!',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? AppTheme.textSecondaryDark
+                                            : AppTheme.textSecondaryLight,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          itemCount: vocabList.length,
+                          itemBuilder: (context, index) {
+                            final vocab = vocabList[index];
+                            return VocabTile(
+                              key: ValueKey(vocab.id),
+                              vocab: vocab,
+                              onDelete: () {
+                                ref
+                                    .read(vocabProvider.notifier)
+                                    .deleteVocab(vocab.id);
+                              },
+                              onEdit: () => _showEditDialog(vocab),
+                            );
+                          },
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        itemCount: vocabList.length,
-                        itemBuilder: (context, index) {
-                          final vocab = vocabList[index];
-                          return VocabTile(
-                            key: ValueKey(vocab.id),
-                            vocab: vocab,
-                            onDelete: () {
-                              ref
-                                  .read(vocabProvider.notifier)
-                                  .deleteVocab(vocab.id);
-                            },
-                            onEdit: () => _showEditDialog(vocab),
-                          );
-                        },
-                      ),
+                ),
               ),
 
               // ─── Progress bar (< 4 words) ──────────────────────
