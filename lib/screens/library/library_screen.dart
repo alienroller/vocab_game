@@ -6,9 +6,12 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../services/assignment_service.dart';
+
 import '../../models/vocab.dart';
 import '../../providers/profile_provider.dart';
 import '../../services/word_session_service.dart';
+import '../../services/word_stats_service.dart';
 import '../../services/xp_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -355,7 +358,7 @@ class _UnitListScreenState extends State<UnitListScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => _UnitGameSelectionScreen(
+          builder: (_) => UnitGameSelectionScreen(
             unitTitle: unit['title'] as String? ?? 'Unit',
             unitId: unit['id'] as String,
             words: vocabWords,
@@ -502,15 +505,18 @@ class _UnitListScreenState extends State<UnitListScreen> {
 
 /// Game selection screen specifically for Supabase unit words.
 /// Shows the same game types but uses pre-loaded words instead of Hive vocab.
-class _UnitGameSelectionScreen extends StatelessWidget {
+class UnitGameSelectionScreen extends StatelessWidget {
   final String unitTitle;
   final String unitId;
   final List<Vocab> words;
+  final String? assignmentId; // non-null when launched from assignment mode
 
-  const _UnitGameSelectionScreen({
+  const UnitGameSelectionScreen({
+    super.key,
     required this.unitTitle,
     required this.unitId,
     required this.words,
+    this.assignmentId,
   });
 
   @override
@@ -575,6 +581,7 @@ class _UnitGameSelectionScreen extends StatelessWidget {
                               unitId: unitId,
                               unitTitle: unitTitle,
                               words: words,
+                              assignmentId: assignmentId,
                             ),
                           ),
                         );
@@ -654,12 +661,14 @@ class UnitQuizGame extends ConsumerStatefulWidget {
   final String unitId;
   final String unitTitle;
   final List<Vocab> words;
+  final String? assignmentId;
 
   const UnitQuizGame({
     super.key,
     required this.unitId,
     required this.unitTitle,
     required this.words,
+    this.assignmentId,
   });
 
   @override
@@ -730,6 +739,20 @@ class _UnitQuizGameState extends ConsumerState<UnitQuizGame> {
       isCorrect: isCorrect,
     );
 
+    // Record for teacher analytics
+    final profileBox = Hive.box('userProfile');
+    final studentId = profileBox.get('id') as String?;
+    final classCode = profileBox.get('classCode') as String?;
+    if (studentId != null) {
+      WordStatsService.recordWordAnswer(
+        studentId: studentId,
+        classCode: classCode,
+        wordEnglish: _quizWords[_currentIndex].english,
+        wordUzbek: _quizWords[_currentIndex].uzbek,
+        wasCorrect: isCorrect,
+      );
+    }
+
     // Advance after short delay
     Future.delayed(const Duration(milliseconds: 800), () {
       if (!mounted) return;
@@ -752,6 +775,26 @@ class _UnitQuizGameState extends ConsumerState<UnitQuizGame> {
       totalQuestions: _quizWords.length,
       correctAnswers: _score,
     );
+
+    // Record assignment progress if this was an assignment session
+    if (widget.assignmentId != null) {
+      final profileBox = Hive.box('userProfile');
+      final studentId = profileBox.get('id') as String?;
+      final classCode = profileBox.get('classCode') as String?;
+      if (studentId != null && classCode != null) {
+        try {
+          await AssignmentService.updateAssignmentProgress(
+            assignmentId: widget.assignmentId!,
+            studentId: studentId,
+            classCode: classCode,
+            wordsMasteredDelta: _score,
+            totalWords: _quizWords.length,
+          );
+        } catch (_) {
+          // Non-critical — don't block result screen
+        }
+      }
+    }
 
     if (!mounted) return;
 

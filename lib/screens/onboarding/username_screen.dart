@@ -69,17 +69,39 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
       final username = _controller.text.trim();
       final userId = const Uuid().v4();
 
-      // Create profile in Supabase
-      await Supabase.instance.client.from('profiles').insert({
-        'id': userId,
-        'username': username,
-        'xp': 0,
-        'level': 1,
-        'streak_days': 0,
-        'is_teacher': _isTeacher,
-      });
+      // Attempt Supabase insert FIRST (authoritative uniqueness check)
+      try {
+        await Supabase.instance.client.from('profiles').insert({
+          'id': userId,
+          'username': username,
+          'xp': 0,
+          'level': 1,
+          'streak_days': 0,
+          'is_teacher': _isTeacher,
+          'week_xp': 0,
+          'total_words_answered': 0,
+          'total_correct': 0,
+        });
+      } on PostgrestException catch (e) {
+        // Code 23505 = unique_violation (username taken by race condition)
+        if (e.code == '23505') {
+          if (mounted) {
+            setState(() {
+              _submitting = false;
+              _isAvailable = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('That username was just taken. Please choose another.'),
+              ),
+            );
+          }
+          return;
+        }
+        rethrow; // Re-throw other Supabase errors
+      }
 
-      // Create local profile
+      // Only create local profile AFTER Supabase confirms success
       await ref
           .read(profileProvider.notifier)
           .createProfile(id: userId, username: username, isTeacher: _isTeacher);
@@ -88,7 +110,7 @@ class _UsernameScreenState extends ConsumerState<UsernameScreen> {
       await NotificationService.requestPermission();
 
       if (mounted) {
-        context.push('/onboarding/pin');
+        context.push('/onboarding/pin', extra: _isTeacher);
       }
     } catch (e) {
       if (mounted) {

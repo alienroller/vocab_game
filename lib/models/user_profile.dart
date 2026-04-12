@@ -44,6 +44,16 @@ class UserProfile {
   List<String> unlockedBadges = [];
 
   /// Accuracy percentage (0.0–1.0).
-  double get accuracy =>
-      totalWordsAnswered > 0 ? totalCorrect / totalWordsAnswered : 0.0;
+  double get accuracy {
+    if (totalWordsAnswered == 0) return 0.0;
+    return (totalCorrect / totalWordsAnswered).clamp(0.0, 1.0);
+  }
+
+  /// Formatted accuracy string for display.
+  /// Shows '—' when no data exists (not '0%').
+  String get accuracyPercent {
+    if (totalWordsAnswered == 0) return '—';
+    final pct = (accuracy * 100).round();
+    return '$pct%';
+  }
 }

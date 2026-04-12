@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
@@ -20,6 +22,8 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   ProfileNotifier() : super(null) {
     _loadProfile();
   }
+
+  bool _isMutating = false; // BUG 15: Re-entrancy guard
 
   /// Builds a UserProfile from the current Hive box data.
   UserProfile? _buildProfileFromHive() {
@@ -53,6 +57,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   /// account recovery).
   Future<void> reload() async {
     state = _buildProfileFromHive();
+    await checkAndResetWeekXp(); // BUG 3: Check week reset on every app load
   }
 
   /// Creates a new profile during onboarding.
@@ -106,10 +111,8 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..unlockedBadges = List.from(profile.unlockedBadges);
   }
 
-
-
   /// All-in-one post-game session handler.
-  /// Adds XP, records per-word accuracy, and syncs to Supabase.
+  /// Adds XP, records per-word accuracy, evaluates streak, and syncs to Supabase.
   /// This is the ONLY method games should call after finishing.
   Future<void> recordGameSession({
     required int xpGained,
@@ -130,6 +133,9 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     // Update accuracy stats (per-word, not per-session)
     profile.totalWordsAnswered += totalQuestions;
     profile.totalCorrect += correctAnswers;
+
+    // BUG 4 fix: Evaluate streak (idempotent — safe to call every game session)
+    _evaluateStreak(profile);
 
     await _saveToHive(profile);
     state = _cloneProfile(profile);
@@ -155,18 +161,77 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     }
   }
 
-  /// Updates the streak after a game session.
-  Future<void> updateStreak(int newStreakDays, String lastPlayedDate) async {
-    if (state == null) return;
-    final profile = state!;
-    profile.streakDays = newStreakDays;
-    profile.lastPlayedDate = lastPlayedDate;
+  /// BUG 4 fix: Evaluates and updates the streak based on today's date.
+  /// Idempotent — safe to call multiple times per day (only updates once per day).
+  /// Called ONLY from recordGameSession(), not from UI code.
+  void _evaluateStreak(UserProfile profile) {
+    final today = DateTime.now();
+    final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-    await _saveToHive(profile);
-    state = _cloneProfile(profile);
+    // Already recorded today → do nothing (idempotency)
+    if (profile.lastPlayedDate == todayStr) return;
 
-    // Sync streak to cloud so it's visible on other devices
-    await SyncService.syncProfile(state!);
+    int newStreak;
+    if (profile.lastPlayedDate == null) {
+      // First time ever playing
+      newStreak = 1;
+    } else {
+      final lastPlayed = DateTime.parse(profile.lastPlayedDate!);
+      final daysSinceLast = today.difference(lastPlayed).inDays;
+
+      if (daysSinceLast == 1) {
+        // Played yesterday → extend streak
+        newStreak = profile.streakDays + 1;
+      } else if (daysSinceLast == 0) {
+        // Same day (clock edge case) → no change
+        newStreak = profile.streakDays;
+      } else {
+        // Missed a day → reset streak to 1
+        newStreak = 1;
+      }
+    }
+
+    final box = Hive.box('userProfile');
+    box.put('streakDays', newStreak);
+    box.put('lastPlayedDate', todayStr);
+    profile.streakDays = newStreak;
+    profile.lastPlayedDate = todayStr;
+  }
+
+  /// BUG 3 fix: Checks if weekly XP needs resetting. Called on app open/resume.
+  Future<void> checkAndResetWeekXp() async {
+    final profile = state;
+    if (profile == null) return;
+
+    final now = DateTime.now();
+    final currentWeekKey = _getIsoWeekKey(now);
+
+    // Derive what week the last game was played
+    final lastDate = profile.lastPlayedDate;
+    if (lastDate == null) return; // Never played — nothing to reset
+
+    final lastPlayedWeekKey = _getIsoWeekKey(DateTime.parse(lastDate));
+
+    if (currentWeekKey != lastPlayedWeekKey) {
+      // A new ISO week has started — reset weekly XP
+      final box = Hive.box('userProfile');
+      box.put('weekXp', 0);
+      profile.weekXp = 0;
+      state = _cloneProfile(profile);
+      unawaited(SyncService.syncProfile(state!));
+    }
+  }
+
+  /// Helper: Returns a unique string for the ISO week (e.g., 2026-W15).
+  String _getIsoWeekKey(DateTime date) {
+    // In ISO 8601, the week belongs to the year of its Thursday.
+    final thursday = date.add(Duration(days: 4 - date.weekday));
+    // Jan 4th is always in Week 1.
+    final jan4 = DateTime(thursday.year, 1, 4);
+    final week1Thursday = jan4.add(Duration(days: 4 - jan4.weekday));
+    // Calculate week number based on difference in days.
+    final weekNumber = 1 + (thursday.difference(week1Thursday).inDays / 7).floor();
+    return '${thursday.year}-W${weekNumber.toString().padLeft(2, '0')}';
   }
 
   /// Sets the class code for this profile.
@@ -214,22 +279,25 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     }
   }
 
-  /// Marks the user as a teacher.
+  /// BUG 15 fix: Marks the user as a teacher with re-entrancy guard.
   Future<void> setTeacher(bool isTeacher) async {
-    if (state == null) return;
-    final profile = state!;
+    // Guard against re-entrant calls
+    if (_isMutating) return;
+    _isMutating = true;
 
     try {
-      await Supabase.instance.client
-          .from('profiles')
-          .update({'is_teacher': isTeacher}).eq('id', profile.id);
-    } catch (_) {
-      // Silently fail — local state still updates
-    }
+      if (state == null) return;
+      final profile = state!;
+      if (profile.isTeacher == isTeacher) return; // Already the right value — no-op
 
-    profile.isTeacher = isTeacher;
-    await _saveToHive(profile);
-    state = _cloneProfile(profile);
+      final box = Hive.box('userProfile');
+      box.put('isTeacher', isTeacher);
+      profile.isTeacher = isTeacher;
+      state = _cloneProfile(profile);
+      unawaited(SyncService.syncProfile(state!));
+    } finally {
+      _isMutating = false;
+    }
   }
 
   /// Logs out the user — clears all local data without deleting the

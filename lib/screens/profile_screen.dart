@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -39,8 +40,6 @@ class ProfileScreen extends ConsumerWidget {
         profileBox.get('totalCorrect', defaultValue: 0) as int;
     final accuracy =
         totalAnswered > 0 ? (totalCorrect / totalAnswered * 100).round() : 0;
-    final isTeacher = profile?.isTeacher ??
-        profileBox.get('isTeacher', defaultValue: false) as bool;
 
     final isDark = theme.brightness == Brightness.dark;
 
@@ -194,43 +193,11 @@ class ProfileScreen extends ConsumerWidget {
             // ─── Class Management ───────────────────────────────
             _SectionHeader(title: 'Class'),
             const SizedBox(height: 8),
-            _ActionTile(
-              icon: Icons.group_add,
-              label: classCode != null && classCode.isNotEmpty
-                  ? 'Change Class'
-                  : 'Join a Class',
-              subtitle: classCode != null && classCode.isNotEmpty
-                  ? 'Currently in: $classCode'
-                  : 'Enter your teacher\'s code',
-              onTap: () => _showJoinClassDialog(context, ref),
+            _ClassManagementSection(
+              profile: profile!,
+              hasClass: classCode != null && classCode.isNotEmpty,
+              classCode: classCode,
             ),
-            const SizedBox(height: 8),
-            // Show "Exit Class" for students in a class, "Create a Class" for teachers/no class
-            if (classCode != null && classCode.isNotEmpty && !isTeacher)
-              _ActionTile(
-                icon: Icons.logout_rounded,
-                label: 'Exit Class',
-                subtitle: 'Leave your current class',
-                isDestructive: true,
-                onTap: () => _showExitClassDialog(context, ref),
-              )
-            else
-              _ActionTile(
-                icon: Icons.school,
-                label: 'Create a Class',
-                subtitle: 'For teachers — get a code for your students',
-                onTap: () => _showCreateClassDialog(context, ref, username),
-              ),
-            // Teacher Dashboard link (only visible for teachers with a class)
-            if (isTeacher && classCode != null && classCode.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _ActionTile(
-                icon: Icons.dashboard,
-                label: 'View Dashboard',
-                subtitle: 'See student progress and stats',
-                onTap: () => context.push('/teacher-dashboard', extra: classCode),
-              ),
-            ],
             const SizedBox(height: 32),
 
             // ─── Offline Dictionary ─────────────────────────────
@@ -289,287 +256,6 @@ class ProfileScreen extends ConsumerWidget {
           }
         },
       ),
-    );
-  }
-  // ─── Exit Class Dialog ─────────────────────────────────────────────
-
-  void _showExitClassDialog(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Exit Class?'),
-        content: const Text(
-          'Are you sure you want to leave this class?\n\n'
-          'You can rejoin later with the same code.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              try {
-                await ref.read(profileProvider.notifier).setClassCode(null);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Left the class.')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to leave class: $e')),
-                  );
-                }
-              }
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Exit Class'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Join Class Dialog ────────────────────────────────────────────
-
-  void _showJoinClassDialog(BuildContext context, WidgetRef ref) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        bool joining = false;
-        String? error;
-        return StatefulBuilder(builder: (context, setDialogState) {
-          return AlertDialog(
-            title: const Text('Join a Class'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Enter the 6-character code from your teacher.'),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  textCapitalization: TextCapitalization.characters,
-                  maxLength: 6,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 8,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'ENG7B',
-                    counterText: '',
-                    errorText: error,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: joining
-                    ? null
-                    : () async {
-                        final code = controller.text.trim().toUpperCase();
-                        if (code.length != 6) {
-                          setDialogState(
-                              () => error = 'Code must be 6 characters');
-                          return;
-                        }
-
-                        setDialogState(() {
-                          joining = true;
-                          error = null;
-                        });
-
-                        final profile = ref.read(profileProvider);
-                        if (profile == null) return;
-
-                        final classData = await ClassService.joinClass(
-                          profileId: profile.id,
-                          code: code,
-                        );
-
-                        if (classData != null) {
-                          await ref
-                              .read(profileProvider.notifier)
-                              .setClassCode(code);
-                          if (dialogContext.mounted) {
-                            Navigator.pop(dialogContext);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                    'Joined ${classData['class_name']}! 🎉'),
-                              ),
-                            );
-                          }
-                        } else {
-                          setDialogState(() {
-                            joining = false;
-                            error = 'Invalid class code.';
-                          });
-                        }
-                      },
-                child: joining
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text('Join'),
-              ),
-            ],
-          );
-        });
-      },
-    );
-  }
-
-  // ─── Create Class Dialog ──────────────────────────────────────────
-
-  void _showCreateClassDialog(
-      BuildContext context, WidgetRef ref, String teacherUsername) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        bool creating = false;
-        String? generatedCode;
-        return StatefulBuilder(builder: (context, setDialogState) {
-          if (generatedCode != null) {
-            // Show the generated code
-            return AlertDialog(
-              title: const Text('Class Created! 🎉'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Share this code with your students:'),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      generatedCode!,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 6,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Students enter this code to join your class.',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Done'),
-                ),
-              ],
-            );
-          }
-
-          return AlertDialog(
-            title: const Text('Create a Class'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                    'You\'ll get a 6-character code to share with students.'),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  decoration: const InputDecoration(
-                    labelText: 'Class name',
-                    hintText: 'e.g. Class 7B — English',
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: creating
-                    ? null
-                    : () async {
-                        final className = controller.text.trim();
-                        if (className.isEmpty) return;
-
-                        setDialogState(() => creating = true);
-
-                        try {
-                          final code = await ClassService.createClass(
-                            teacherUsername: teacherUsername,
-                            className: className,
-                          );
-
-                          // Mark as teacher
-                          await ref
-                              .read(profileProvider.notifier)
-                              .setTeacher(true);
-
-                          // Join own class
-                          final profile = ref.read(profileProvider);
-                          if (profile != null) {
-                            await ClassService.joinClass(
-                              profileId: profile.id,
-                              code: code,
-                            );
-                            await ref
-                                .read(profileProvider.notifier)
-                                .setClassCode(code);
-                          }
-
-                          setDialogState(() => generatedCode = code);
-                        } catch (e) {
-                          setDialogState(() => creating = false);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: $e')),
-                            );
-                          }
-                        }
-                      },
-                child: creating
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text('Create'),
-              ),
-            ],
-          );
-        });
-      },
     );
   }
 
@@ -710,6 +396,235 @@ class ProfileScreen extends ConsumerWidget {
           );
         });
       },
+    );
+  }
+}
+
+// ─── Class Management Section ────────────────────────
+
+/// Implements the correct button logic based on student state:
+///   State A: student, no class → [Join a Class]
+///   State B: student, has class → [Change Class], [Exit Class]
+class _ClassManagementSection extends ConsumerStatefulWidget {
+  final dynamic profile;
+  final bool hasClass;
+  final String? classCode;
+
+  const _ClassManagementSection({
+    required this.profile,
+    required this.hasClass,
+    this.classCode,
+  });
+
+  @override
+  ConsumerState<_ClassManagementSection> createState() =>
+      _ClassManagementSectionState();
+}
+
+class _ClassManagementSectionState
+    extends ConsumerState<_ClassManagementSection> {
+  bool _isLoading = false;
+  final _classNameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _classNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+
+    if (widget.hasClass) {
+      // STATE B: Active student in a class
+      return Column(
+        children: [
+          _ActionTile(
+            icon: Icons.swap_horiz,
+            label: 'Change Class',
+            subtitle: 'Currently in: ${widget.classCode}',
+            onTap: _isLoading
+                ? () {}
+                : () => _showChangeClassDialog(profile),
+          ),
+          const SizedBox(height: 8),
+          _ActionTile(
+            icon: Icons.exit_to_app,
+            label: 'Exit Class',
+            subtitle: 'Leave your current class',
+            isDestructive: true,
+            onTap: _isLoading ? () {} : () => _showExitClassDialog(profile),
+          ),
+        ],
+      );
+    }
+
+    // STATE A: Student with no class
+    return Column(
+      children: [
+        _ActionTile(
+          icon: Icons.group_add,
+          label: 'Join a Class',
+          subtitle: 'Enter your teacher\'s code',
+          onTap: _isLoading ? () {} : () => _showJoinClassDialog(profile),
+        ),
+      ],
+    );
+  }
+
+  void _showJoinClassDialog(dynamic profile) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        bool joining = false;
+        String? error;
+        return StatefulBuilder(builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Join a Class'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Enter the 6-character code from your teacher.'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 6,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 8,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'ENG7B',
+                    counterText: '',
+                    errorText: error,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: joining
+                    ? null
+                    : () async {
+                        final code = controller.text.trim().toUpperCase();
+                        if (code.length != 6) {
+                          setDialogState(
+                              () => error = 'Code must be 6 characters');
+                          return;
+                        }
+                        setDialogState(() {
+                          joining = true;
+                          error = null;
+                        });
+                        final classData = await ClassService.joinClass(
+                          profileId: profile.id,
+                          code: code,
+                        );
+                        if (classData != null) {
+                          await ref
+                              .read(profileProvider.notifier)
+                              .setClassCode(code);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content: Text(
+                                        'Joined ${classData['class_name']}! 🎉')),
+                              );
+                            }
+                          }
+                        } else {
+                          setDialogState(() {
+                            joining = false;
+                            error = 'Invalid class code.';
+                          });
+                        }
+                      },
+                child: joining
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('Join'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  void _showChangeClassDialog(dynamic profile) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change Class'),
+        content: const Text(
+          'You will leave your current class and join a new one.\n\n'
+          'Are you sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await ref.read(profileProvider.notifier).setClassCode(null);
+              if (context.mounted) {
+                _showJoinClassDialog(profile);
+              }
+            },
+            child: const Text('Change Class'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExitClassDialog(dynamic profile) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Exit Class?'),
+        content: const Text(
+          'Are you sure you want to leave this class?\n\n'
+          'You can rejoin later with the same code.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await ref.read(profileProvider.notifier).setClassCode(null);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Left the class.')),
+                );
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Exit Class'),
+          ),
+        ],
+      ),
     );
   }
 }

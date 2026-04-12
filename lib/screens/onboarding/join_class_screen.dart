@@ -97,10 +97,25 @@ class _JoinClassScreenState extends ConsumerState<JoinClassScreen> {
   /// a competitive rank reveal dialog.
   Future<void> _showRankReveal(String classCode, String myUsername) async {
     try {
-      final classmates = await Supabase.instance.client
+      // Fetch teacher ID from classes table for double-exclusion
+      final classData = await Supabase.instance.client
+          .from('classes')
+          .select('teacher_id')
+          .eq('code', classCode)
+          .maybeSingle();
+      final teacherId = classData?['teacher_id'] as String?;
+
+      var query = Supabase.instance.client
           .from('profiles')
           .select('username, xp')
           .eq('class_code', classCode)
+          .eq('is_teacher', false); // BUG 11 fix: exclude teacher from rank
+
+      if (teacherId != null) {
+        query = query.neq('id', teacherId); // Belt-and-suspenders exclusion
+      }
+
+      final classmates = await query
           .order('xp', ascending: false)
           .limit(50);
 

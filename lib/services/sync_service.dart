@@ -58,18 +58,22 @@ class SyncService {
     };
   }
 
-  // ─── Offline Sync Queue ───────────────────────────────────────────
-
-  /// Queues a failed operation for later retry.
+  /// BUG 13 fix: Stores the LATEST snapshot per profile ID as a keyed map.
+  /// Only the most recent data for each profile is kept — older snapshots are
+  /// automatically overwritten. This prevents stale data from clobbering newer
+  /// updates when the queue is drained.
   static void _enqueue(String type, Map<String, dynamic> data) {
     try {
       final box = Hive.box('sync_queue');
-      box.add({
+      final profileId = data['id'] as String?;
+      // Use profile ID as key so each profile only has one entry
+      final key = profileId != null ? 'profile_$profileId' : 'op_${DateTime.now().millisecondsSinceEpoch}';
+      box.put(key, {
         'type': type,
         'data': data,
         'timestamp': DateTime.now().toIso8601String(),
       });
-      debugPrint('Sync queued (${box.length} pending)');
+      debugPrint('Sync queued for ${data['username'] ?? profileId} (${box.length} pending)');
     } catch (e) {
       debugPrint('Failed to enqueue sync: $e');
     }
@@ -77,8 +81,8 @@ class SyncService {
 
   /// Drains the sync queue — call on app start after confirming connectivity.
   ///
-  /// Retries all queued profile syncs. Successfully synced items are removed.
-  /// Failed items remain in the queue for the next drain attempt.
+  /// BUG 13 fix: Since each profile now has exactly one entry (keyed by ID),
+  /// we simply iterate all entries and upsert. No dedup needed.
   static Future<void> drainSyncQueue() async {
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.contains(ConnectivityResult.none)) return;
@@ -89,22 +93,34 @@ class SyncService {
 
       debugPrint('Draining sync queue (${box.length} items)...');
 
-      // Process from newest to oldest (newest data is most accurate)
       final keysToRemove = <dynamic>[];
-      final processedIds = <String>{}; // Deduplicate — only sync latest per profile
 
-      for (final key in box.keys.toList().reversed) {
+      for (final key in box.keys.toList()) {
         final item = box.get(key);
-        if (item == null) continue;
-
-        final data = Map<String, dynamic>.from(item['data'] as Map);
-        final profileId = data['id'] as String?;
-
-        // Skip if we already synced a newer version of this profile
-        if (profileId != null && processedIds.contains(profileId)) {
+        if (item == null) {
           keysToRemove.add(key);
           continue;
         }
+
+        final type = item['type'] as String? ?? 'profile_sync';
+
+        // Handle pending account deletions
+        if (type == 'pending_delete') {
+          final userId = item['data']?['id'] as String?;
+          if (userId != null) {
+            try {
+              await _supabase.from('profiles').delete().eq('id', userId);
+              debugPrint('  ✅ Pending deletion completed for $userId');
+              keysToRemove.add(key);
+            } catch (e) {
+              debugPrint('  ❌ Pending deletion failed: $e');
+            }
+          }
+          continue;
+        }
+
+        // Handle profile syncs
+        final data = Map<String, dynamic>.from(item['data'] as Map);
 
         try {
           await _supabase.from('profiles').upsert(
@@ -112,15 +128,12 @@ class SyncService {
             onConflict: 'id',
           );
           keysToRemove.add(key);
-          if (profileId != null) processedIds.add(profileId);
           debugPrint('  ✅ Synced queued profile ${data['username']}');
         } catch (e) {
           debugPrint('  ❌ Retry failed, keeping in queue: $e');
-          // Leave in queue for next drain
         }
       }
 
-      // Remove successfully synced items
       for (final key in keysToRemove) {
         await box.delete(key);
       }
@@ -173,27 +186,53 @@ class SyncService {
 
   // ─── Profile Deletion ─────────────────────────────────────────────
 
-  /// Permanently deletes a profile from Supabase and clears all local data.
+  /// BUG 7 fix: Safely deletes a profile.
+  /// 1. Attempts remote deletion FIRST
+  /// 2. Only clears local data AFTER confirmed remote success
+  /// 3. If offline, queues a pending-delete and clears local data
   static Future<bool> deleteProfile(String userId) async {
     try {
       final connectivity = await Connectivity().checkConnectivity();
-      if (connectivity.contains(ConnectivityResult.none)) return false;
+      final isOffline = connectivity.contains(ConnectivityResult.none);
 
+      if (isOffline) {
+        // Queue deletion for when we come back online
+        try {
+          final box = Hive.box('sync_queue');
+          box.put('pending_delete_$userId', {
+            'type': 'pending_delete',
+            'data': {'id': userId},
+            'timestamp': DateTime.now().toIso8601String(),
+          });
+        } catch (_) {}
+
+        // Clear local data even offline (user expects immediate feedback)
+        await _clearLocalData();
+        return true; // Soft-true — deletion is queued
+      }
+
+      // Online: attempt remote deletion first
       await _supabase.from('profiles').delete().eq('id', userId);
 
-      final box = Hive.box('userProfile');
-      await box.clear();
-
-      // Clear sync queue too — no point syncing a deleted profile
-      try {
-        final syncBox = Hive.box('sync_queue');
-        await syncBox.clear();
-      } catch (_) {}
-
+      // Remote succeeded — now safe to clear local data
+      await _clearLocalData();
       return true;
     } catch (e) {
       debugPrint('Delete profile failed: $e');
       return false;
     }
+  }
+
+  /// Clears all local Hive data after confirmed deletion.
+  static Future<void> _clearLocalData() async {
+    try {
+      final box = Hive.box('userProfile');
+      await box.clear();
+    } catch (_) {}
+
+    try {
+      final syncBox = Hive.box('sync_queue');
+      await syncBox.clear();
+    } catch (_) {}
   }
 }

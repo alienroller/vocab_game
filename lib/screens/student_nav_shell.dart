@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/duel_provider.dart';
+import '../providers/profile_provider.dart';
 import '../theme/app_theme.dart';
 
 /// App shell with persistent bottom navigation bar.
@@ -11,17 +12,37 @@ import '../theme/app_theme.dart';
 /// 4 tabs: Home, Library, Duels, Profile.
 /// Each tab maintains its own navigation stack.
 /// Shows a badge dot on the Duels tab when incoming invites exist.
-class AppShell extends ConsumerStatefulWidget {
+class StudentNavShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
 
-  const AppShell({super.key, required this.navigationShell});
+  const StudentNavShell({super.key, required this.navigationShell});
 
   @override
-  ConsumerState<AppShell> createState() => _AppShellState();
+  ConsumerState<StudentNavShell> createState() => _StudentNavShellState();
 }
 
-class _AppShellState extends ConsumerState<AppShell> {
+class _StudentNavShellState extends ConsumerState<StudentNavShell> with WidgetsBindingObserver {
   DateTime? _lastBackPressTime;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // BUG 3 fix: Check week reset whenever user brings app to foreground
+      ref.read(profileProvider.notifier).checkAndResetWeekXp();
+    }
+  }
 
   void _onTap(int index) {
     widget.navigationShell.goBranch(

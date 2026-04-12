@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
+import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -86,6 +87,20 @@ class _QuizGameState extends ConsumerState<QuizGame>
       wordId: _quizVocab[_currentIndex].id,
       isCorrect: isCorrect,
     );
+
+    // Record for teacher analytics
+    final profileBox = Hive.box('userProfile');
+    final studentId = profileBox.get('id') as String?;
+    final classCode = profileBox.get('classCode') as String?;
+    if (studentId != null) {
+      WordStatsService.recordWordAnswer(
+        studentId: studentId,
+        classCode: classCode,
+        wordEnglish: _quizVocab[_currentIndex].english,
+        wordUzbek: _quizVocab[_currentIndex].uzbek,
+        wasCorrect: isCorrect,
+      );
+    }
 
     // Calculate XP for this answer
     final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;

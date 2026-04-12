@@ -9,6 +9,7 @@ class ClassService {
   /// Teacher calls this to create a class.
   /// Returns the unique 6-character class code.
   static Future<String> createClass({
+    required String teacherId,
     required String teacherUsername,
     required String className,
   }) async {
@@ -16,6 +17,7 @@ class ClassService {
 
     await _supabase.from('classes').insert({
       'code': code,
+      'teacher_id': teacherId,
       'teacher_username': teacherUsername,
       'class_name': className,
     });
@@ -64,15 +66,5 @@ class ClassService {
         .maybeSingle();
   }
 
-  /// Gets all students in a class (for teacher dashboard).
-  static Future<List<Map<String, dynamic>>> getClassStudents(
-      String code) async {
-    final data = await _supabase
-        .from('profiles')
-        .select(
-            'username, xp, level, streak_days, total_words_answered, total_correct')
-        .eq('class_code', code.toUpperCase())
-        .order('xp', ascending: false);
-    return List<Map<String, dynamic>>.from(data);
-  }
+
 }

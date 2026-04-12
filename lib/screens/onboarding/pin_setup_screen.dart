@@ -10,7 +10,8 @@ import '../../theme/app_theme.dart';
 ///
 /// The user chooses a 6-digit PIN for account recovery.
 class PinSetupScreen extends StatefulWidget {
-  const PinSetupScreen({super.key});
+  final bool isTeacher;
+  const PinSetupScreen({super.key, this.isTeacher = false});
 
   @override
   State<PinSetupScreen> createState() => _PinSetupScreenState();
@@ -45,10 +46,14 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     if (!mounted) return;
 
     if (success) {
-      // Move to the next onboarding step (join class)
+      // Move to the next onboarding step
       if (!mounted) return;
 
-      context.push('/onboarding/join-class');
+      if (widget.isTeacher) {
+        context.push('/onboarding/teacher-class-setup');
+      } else {
+        context.push('/onboarding/join-class');
+      }
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -100,9 +101,9 @@ class DictionaryService {
         _bundled[merged.english.toLowerCase()] = merged;
       }
       _bundleLoaded = true;
-      print('✅ Bundled dictionary: ${_bundled.length} words');
+      debugPrint('✅ Bundled dictionary: ${_bundled.length} words');
     } catch (e) {
-      print('⚠️ Could not load bundled dictionary: $e');
+      debugPrint('⚠️ Could not load bundled dictionary: $e');
     }
   }
 
@@ -136,7 +137,7 @@ class DictionaryService {
         return _mergeEntries(entries);
       }
     } catch (e) {
-      print('Supabase lookup failed: $e');
+      debugPrint('Supabase lookup failed: $e');
     }
 
     // Tier 4: Google Translate Self-Healing Fallback
@@ -151,7 +152,7 @@ class DictionaryService {
         return null; // Reject immediately!
       }
     } catch (e) {
-      print('Network validation failed: $e');
+      debugPrint('Network validation failed: $e');
       throw Exception('Network validation error: $e');
     }
     
@@ -175,7 +176,7 @@ class DictionaryService {
         }
       }
     } catch (e) {
-      print('Google Translate API fallback failed: $e');
+      debugPrint('Google Translate API fallback failed: $e');
     }
 
     return null;

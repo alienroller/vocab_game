@@ -7,7 +7,8 @@ import 'games/flashcard_game.dart';
 import 'games/matching_game.dart';
 import 'games/memory_game.dart';
 import 'games/quiz_game.dart';
-import 'screens/app_shell.dart';
+import 'screens/student_nav_shell.dart';
+import 'screens/teacher_nav_shell.dart';
 import 'screens/duel/duel_game_screen.dart';
 import 'screens/duel/duel_history_screen.dart';
 import 'screens/duel/duel_lobby_screen.dart';
@@ -25,7 +26,15 @@ import 'screens/onboarding/welcome_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/search_screen.dart';
-import 'screens/teacher_dashboard_screen.dart';
+import 'models/class_student.dart';
+import 'screens/onboarding/class_code_reveal_screen.dart';
+import 'screens/onboarding/teacher_class_setup_screen.dart';
+import 'screens/teacher/teacher_analytics_screen.dart';
+import 'screens/teacher/teacher_classes_screen.dart';
+import 'screens/teacher/teacher_dashboard_screen.dart';
+import 'screens/teacher/teacher_library_screen.dart';
+import 'screens/teacher/teacher_profile_screen.dart';
+import 'screens/teacher/teacher_student_detail_screen.dart';
 import 'speaking/models/speaking_models.dart';
 import 'speaking/screens/speaking_home_screen.dart';
 import 'speaking/screens/speaking_lesson_screen.dart';
@@ -66,6 +75,12 @@ final _searchNavKey = GlobalKey<NavigatorState>(debugLabel: 'search');
 final _duelsNavKey = GlobalKey<NavigatorState>(debugLabel: 'duels');
 final _profileNavKey = GlobalKey<NavigatorState>(debugLabel: 'profile');
 
+final _teacherDashboardNavKey = GlobalKey<NavigatorState>(debugLabel: 't_dash');
+final _teacherClassesNavKey = GlobalKey<NavigatorState>(debugLabel: 't_class');
+final _teacherLibraryNavKey = GlobalKey<NavigatorState>(debugLabel: 't_lib');
+final _teacherAnalyticsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_analytics');
+final _teacherProfileNavKey = GlobalKey<NavigatorState>(debugLabel: 't_profile');
+
 /// Centralized router — all navigation goes through named routes.
 ///
 /// Uses StatefulShellRoute for bottom nav tabs (Home, Games, Ranks, Profile).
@@ -74,6 +89,10 @@ final GoRouter appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
   redirect: (context, state) {
+    // Guard against box not being open (defensive — should not happen
+    // after main.dart awaits Hive.openBox, but prevents cold-start crashes)
+    if (!Hive.isBoxOpen('userProfile')) return '/welcome';
+
     final profileBox = Hive.box('userProfile');
     final hasOnboarded =
         profileBox.get('hasOnboarded', defaultValue: false) as bool;
@@ -85,7 +104,19 @@ final GoRouter appRouter = GoRouter(
 
     if (!hasOnboarded && !isOnboarding) return '/welcome';
     if (hasOnboarded && path == '/welcome') return '/home';
-    if (path == '/') return hasOnboarded ? '/home' : '/welcome';
+
+    final isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
+    if (path == '/') {
+      if (!hasOnboarded) return '/welcome';
+      return isTeacher ? '/teacher/dashboard' : '/home';
+    }
+
+    if (isTeacher && (path == '/home' || path == '/library' || path == '/profile' || path.startsWith('/duels') || path.startsWith('/speaking'))) {
+      return '/teacher/dashboard';
+    }
+    if (!isTeacher && path.startsWith('/teacher')) {
+      return '/home';
+    }
 
     return null;
   },
@@ -115,8 +146,30 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/onboarding/pin',
       parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final isTeacher = state.extra as bool? ?? false;
+        return _buildPage(PinSetupScreen(isTeacher: isTeacher), state);
+      },
+    ),
+    GoRoute(
+      path: '/onboarding/teacher-class-setup',
+      parentNavigatorKey: _rootNavigatorKey,
       pageBuilder: (_, state) =>
-          _buildPage(const PinSetupScreen(), state),
+          _buildPage(const TeacherClassSetupScreen(), state),
+    ),
+    GoRoute(
+      path: '/onboarding/class-code-reveal',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final args = state.extra as Map<String, dynamic>? ?? {};
+        return _buildPage(
+          ClassCodeRevealScreen(
+            classCode: args['classCode'] as String? ?? '',
+            className: args['className'] as String? ?? 'Class',
+          ),
+          state,
+        );
+      },
     ),
     GoRoute(
       path: '/recovery',
@@ -128,7 +181,7 @@ final GoRouter appRouter = GoRouter(
     // ─── Bottom Nav Shell ───────────────────────────────────────
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) =>
-          AppShell(navigationShell: navigationShell),
+          StudentNavShell(navigationShell: navigationShell),
       branches: [
         // Tab 0: Home
         StatefulShellBranch(
@@ -342,20 +395,73 @@ final GoRouter appRouter = GoRouter(
           _buildPage(const DuelHistoryScreen(), state),
     ),
 
-    // ─── Teacher Dashboard ──────────────────────────────────────
+    // ─── Teacher Bottom Nav Shell ───────────────────────────────────────
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) =>
+          TeacherNavShell(navigationShell: navigationShell),
+      branches: [
+        StatefulShellBranch(
+          navigatorKey: _teacherDashboardNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/dashboard',
+              pageBuilder: (_, state) => _buildPage(const TeacherDashboardScreen(), state),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          navigatorKey: _teacherClassesNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/classes',
+              pageBuilder: (_, state) => _buildPage(const TeacherMyClassesScreen(), state),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          navigatorKey: _teacherLibraryNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/library',
+              pageBuilder: (_, state) => _buildPage(const TeacherLibraryScreen(), state),
+              routes: [
+                GoRoute(
+                  path: 'units',
+                  pageBuilder: (_, state) {
+                    final collection = state.extra as Map<String, dynamic>;
+                    return _buildPage(TeacherUnitListScreen(collection: collection), state);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          navigatorKey: _teacherAnalyticsNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/analytics',
+              pageBuilder: (_, state) => _buildPage(const TeacherAnalyticsScreen(), state),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          navigatorKey: _teacherProfileNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/profile',
+              pageBuilder: (_, state) => _buildPage(const TeacherProfileScreen(), state),
+            ),
+          ],
+        ),
+      ],
+    ),
     GoRoute(
-      path: '/teacher-dashboard',
+      path: '/teacher/student-detail',
       parentNavigatorKey: _rootNavigatorKey,
-      redirect: (context, state) {
-        if (state.extra is! String) return '/profile';
-        return null;
-      },
       pageBuilder: (_, state) {
-        final classCode = state.extra as String;
-        return _buildPage(
-          TeacherDashboardScreen(classCode: classCode),
-          state,
-        );
+        final student = state.extra as ClassStudent;
+        return _buildPage(TeacherStudentDetailScreen(student: student), state);
       },
     ),
   ],

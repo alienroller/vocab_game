@@ -11,7 +11,7 @@ import '../widgets/leaderboard_row_widget.dart';
 
 /// Leaderboard screen with three tabs: My Class, Global, This Week.
 ///
-/// Uses Supabase Realtime to update live when other players earn XP.
+/// BUG 9 fix: Uses periodic polling (30s) instead of Realtime subscriptions.
 class LeaderboardScreen extends ConsumerStatefulWidget {
   const LeaderboardScreen({super.key});
 
@@ -29,6 +29,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
   String? _classCode;
   String? _myUsername;
   Timer? _countdownTimer;
+  Timer? _pollTimer; // BUG 9: polling timer instead of Realtime
   String _weeklyCountdown = '';
 
   @override
@@ -36,7 +37,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
-    _subscribeToRealtime();
+    _startPolling(); // BUG 9 fix: periodic polling instead of Realtime
     _startWeeklyCountdown();
   }
 
@@ -111,6 +112,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
             .from('profiles')
             .select('username, xp, level, streak_days')
             .eq('class_code', _classCode!)
+            .eq('is_teacher', false) // Exclude teachers from class board
             .order('xp', ascending: false)
             .limit(50);
       }
@@ -122,6 +124,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
             .from('profiles')
             .select('username, week_xp, level')
             .eq('class_code', _classCode!)
+            .eq('is_teacher', false) // Exclude teachers from weekly board
             .order('week_xp', ascending: false)
             .limit(50);
       } else {
@@ -169,18 +172,13 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
     return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
-  void _subscribeToRealtime() {
-    Supabase.instance.client
-        .channel('leaderboard-updates')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'profiles',
-          callback: (payload) {
-            _loadData(); // reload on any profile change
-          },
-        )
-        .subscribe();
+  /// BUG 9 fix: Polls for updates every 30 seconds instead of using Realtime.
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshFromSupabase(),
+    );
   }
 
   @override
@@ -315,7 +313,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen>
   void dispose() {
     _tabController.dispose();
     _countdownTimer?.cancel();
-    Supabase.instance.client.channel('leaderboard-updates').unsubscribe();
+    _pollTimer?.cancel(); // BUG 9: cancel polling timer
     super.dispose();
   }
 }

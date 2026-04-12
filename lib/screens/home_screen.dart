@@ -7,7 +7,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/profile_provider.dart';
 import '../providers/vocab_provider.dart';
+import '../providers/assignment_provider.dart';
 import '../models/vocab.dart';
+import '../models/teacher_message.dart';
+import '../services/assignment_service.dart';
+import '../services/teacher_message_service.dart';
+import '../services/word_session_service.dart';
+import 'library/library_screen.dart' show UnitGameSelectionScreen;
 import '../theme/app_theme.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
@@ -26,13 +32,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   String? _rivalName;
   int _rivalXp = 0; // store rival's actual XP, calculate gap live in build()
+  TeacherMessage? _teacherMessage;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadClassData();
+    });
     _fetchRival();
     _checkStreakMilestone();
+  }
+
+  void _loadClassData() async {
+    final profile = ref.read(profileProvider);
+    if (profile == null || profile.classCode == null) return;
+    
+    ref.read(assignmentProvider.notifier).loadStudentAssignments(
+      classCode: profile.classCode!,
+      studentId: profile.id,
+    );
+    
+    final msg = await TeacherMessageService.getMessage(profile.classCode!);
+    if (mounted) {
+      setState(() => _teacherMessage = msg);
+    }
   }
 
   @override
@@ -82,10 +107,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (classCode == null || classCode.isEmpty || myUsername == null) return;
 
     try {
-      final data = await Supabase.instance.client
+      // Fetch teacher ID from classes table for double-exclusion
+      final classData = await Supabase.instance.client
+          .from('classes')
+          .select('teacher_id')
+          .eq('code', classCode)
+          .maybeSingle();
+      final teacherId = classData?['teacher_id'] as String?;
+
+      var query = Supabase.instance.client
           .from('profiles')
           .select('username, xp')
           .eq('class_code', classCode)
+          .eq('is_teacher', false); // BUG 10 fix: exclude teacher from rival candidates
+          
+      if (teacherId != null) {
+        query = query.neq('id', teacherId); // Belt-and-suspenders exclusion
+      }
+
+      final data = await query
           .order('xp', ascending: false)
           .limit(50);
 
@@ -175,6 +215,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final vocabList = ref.watch(vocabProvider);
     final profile = ref.watch(profileProvider);
+    final assignmentState = ref.watch(assignmentProvider);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final canPlay = vocabList.length >= 4;
@@ -281,6 +322,149 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ],
                 ),
               ),
+
+              // ─── Assignments ────────────────────────────────────
+              if (assignmentState.assignments.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.assignment, color: AppTheme.violet, size: 20),
+                      const SizedBox(width: 8),
+                      Text('Assignments', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 130,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: assignmentState.assignments.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      final assignment = assignmentState.assignments[index];
+                      final progress = assignmentState.progressMap[assignment.id];
+                      final mastered = progress?.wordsMastered ?? 0;
+                      final total = assignment.wordCount;
+                      final pct = total > 0 ? mastered / total : 0.0;
+                      final isCompleted = progress?.isCompleted ?? false;
+
+                      return GestureDetector(
+                        onTap: () async {
+                          if (isCompleted) return; // Already done
+                          try {
+                            // Fetch words for the assigned unit (same as library)
+                            final words = await WordSessionService.selectSessionWords(
+                              unitId: assignment.unitId,
+                            );
+                            if (words.isEmpty) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('No words found for this assignment.')),
+                                );
+                              }
+                              return;
+                            }
+                            // Convert to Vocab model
+                            final vocabWords = words
+                                .map((w) => Vocab(
+                                      id: w['id'] as String,
+                                      english: w['word'] as String,
+                                      uzbek: w['translation'] as String,
+                                    ))
+                                .toList();
+                            if (!context.mounted) return;
+                            // Navigate to game selection (reuse library's screen)
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => UnitGameSelectionScreen(
+                                  unitTitle: assignment.unitTitle,
+                                  unitId: assignment.unitId,
+                                  words: vocabWords,
+                                  assignmentId: assignment.id,
+                                ),
+                              ),
+                            );
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error loading assignment: $e')),
+                              );
+                            }
+                          }
+                        },
+                        child: Container(
+                          width: 240,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: isCompleted ? Colors.green.withValues(alpha: 0.3) : AppTheme.violet.withValues(alpha: 0.2)),
+                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(assignment.unitTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  ),
+                                  if (isCompleted) const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                                ],
+                              ),
+                              Text(assignment.bookTitle, style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              const Spacer(),
+                              Row(
+                                children: [
+                                  Expanded(child: LinearProgressIndicator(value: pct, backgroundColor: isCompleted ? Colors.green.withValues(alpha: 0.2) : AppTheme.violet.withValues(alpha: 0.2), color: isCompleted ? Colors.green : AppTheme.violet, borderRadius: BorderRadius.circular(4), minHeight: 6)),
+                                  const SizedBox(width: 8),
+                                  Text('$mastered/$total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isCompleted ? Colors.green : null)),
+                                ],
+                              ),
+                              if (assignment.dueDate != null) ...[
+                                const SizedBox(height: 6),
+                                Text('Due: ${assignment.dueDate}', style: const TextStyle(fontSize: 10, color: Colors.orange)),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+
+              // ─── Teacher Message ────────────────────────────────
+              if (_teacherMessage != null)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.violet.withValues(alpha: isDark ? 0.15 : 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.violet.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('📌', style: TextStyle(fontSize: 24)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Class Announcement', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.violet, fontSize: 12)),
+                            const SizedBox(height: 2),
+                            Text(_teacherMessage!.message, style: const TextStyle(fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
               // ─── Play Today Banner ──────────────────────────────
               if (needsToPlayToday)

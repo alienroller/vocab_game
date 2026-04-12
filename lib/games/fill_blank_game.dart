@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../services/word_session_service.dart';
+import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/xp_float_widget.dart';
@@ -110,6 +111,20 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
         wordId: _gameVocab[_currentIndex].id,
         isCorrect: _isCorrect,
       );
+
+      // Record for teacher analytics
+      final profileBox = Hive.box('userProfile');
+      final studentId = profileBox.get('id') as String?;
+      final classCode = profileBox.get('classCode') as String?;
+      if (studentId != null) {
+        WordStatsService.recordWordAnswer(
+          studentId: studentId,
+          classCode: classCode,
+          wordEnglish: _gameVocab[_currentIndex].english,
+          wordUzbek: _gameVocab[_currentIndex].uzbek,
+          wasCorrect: _isCorrect,
+        );
+      }
 
       if (_isCorrect) {
         _score++;

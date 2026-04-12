@@ -135,13 +135,27 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
          return; // Skip loading lobby since we are entering a game
       }
 
-      // Fetch classmates (exclude self)
-      final classmatesData = await supabase
+      // Fetch teacher ID from classes table for double-exclusion
+      final classData = await supabase
+          .from('classes')
+          .select('teacher_id')
+          .eq('code', classCode)
+          .maybeSingle();
+      final teacherId = classData?['teacher_id'] as String?;
+
+      var classmatesQuery = supabase
           .from('profiles')
           .select('id, username, xp, level')
           .eq('class_code', classCode)
-          .neq('id', userId)
-          .order('xp', ascending: false);
+          .eq('is_teacher', false) // Exclude teacher
+          .neq('id', userId);
+
+      if (teacherId != null) {
+        classmatesQuery = classmatesQuery.neq('id', teacherId);
+      }
+
+      // Fetch classmates (exclude self and teachers)
+      final classmatesData = await classmatesQuery.order('xp', ascending: false);
 
       // Fetch pending duels sent by me
       final pendingData = await supabase
