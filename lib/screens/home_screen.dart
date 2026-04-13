@@ -5,13 +5,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:vocab_game/services/version_service.dart';
 
 import '../providers/profile_provider.dart';
 import '../providers/vocab_provider.dart';
 import '../providers/assignment_provider.dart';
 import '../models/vocab.dart';
 import '../models/teacher_message.dart';
-import '../services/assignment_service.dart';
 import '../services/teacher_message_service.dart';
 import '../services/word_session_service.dart';
 import 'library/library_screen.dart' show UnitGameSelectionScreen;
@@ -43,6 +43,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadClassData();
+
+      AppVersionInfo.instance.checkForUpdate().then((isUpdateAvailable) {
+        if (isUpdateAvailable && mounted) {
+          context.pushReplacement('/update');
+        }
+      });
     });
     _fetchRival();
     _checkStreakMilestone();
@@ -58,12 +64,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _loadClassData() async {
     final profile = ref.read(profileProvider);
     if (profile == null || profile.classCode == null) return;
-    
-    ref.read(assignmentProvider.notifier).loadStudentAssignments(
-      classCode: profile.classCode!,
-      studentId: profile.id,
-    );
-    
+
+    ref
+        .read(assignmentProvider.notifier)
+        .loadStudentAssignments(
+          classCode: profile.classCode!,
+          studentId: profile.id,
+        );
+
     final msg = await TeacherMessageService.getMessage(profile.classCode!);
     if (mounted) {
       setState(() => _teacherMessage = msg);
@@ -100,10 +108,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             showDialog(
               context: context,
               barrierDismissible: false,
-              builder: (_) => _StreakMilestoneDialog(
-                milestone: milestone,
-                currentStreak: streakDays,
-              ),
+              builder:
+                  (_) => _StreakMilestoneDialog(
+                    milestone: milestone,
+                    currentStreak: streakDays,
+                  ),
             );
           }
         });
@@ -120,26 +129,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     try {
       // Fetch teacher ID from classes table for double-exclusion
-      final classData = await Supabase.instance.client
-          .from('classes')
-          .select('teacher_id')
-          .eq('code', classCode)
-          .maybeSingle();
+      final classData =
+          await Supabase.instance.client
+              .from('classes')
+              .select('teacher_id')
+              .eq('code', classCode)
+              .maybeSingle();
       final teacherId = classData?['teacher_id'] as String?;
 
       var query = Supabase.instance.client
           .from('profiles')
           .select('username, xp')
           .eq('class_code', classCode)
-          .eq('is_teacher', false); // BUG 10 fix: exclude teacher from rival candidates
-          
+          .eq(
+            'is_teacher',
+            false,
+          ); // BUG 10 fix: exclude teacher from rival candidates
+
       if (teacherId != null) {
         query = query.neq('id', teacherId); // Belt-and-suspenders exclusion
       }
 
-      final data = await query
-          .order('xp', ascending: false)
-          .limit(50);
+      final data = await query.order('xp', ascending: false).limit(50);
 
       final list = List<Map<String, dynamic>>.from(data);
 
@@ -179,47 +190,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } catch (_) {}
   }
 
-
   void _showEditDialog(Vocab vocab) {
     final engCtrl = TextEditingController(text: vocab.english);
     final uzCtrl = TextEditingController(text: vocab.uzbek);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Word'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: engCtrl,
-              decoration: const InputDecoration(hintText: 'English'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Edit Word'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: engCtrl,
+                  decoration: const InputDecoration(hintText: 'English'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: uzCtrl,
+                  decoration: const InputDecoration(hintText: 'Uzbek'),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: uzCtrl,
-              decoration: const InputDecoration(hintText: 'Uzbek'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  ref
+                      .read(vocabProvider.notifier)
+                      .updateVocab(vocab.id, engCtrl.text, uzCtrl.text);
+                  Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () {
-              ref.read(vocabProvider.notifier).updateVocab(
-                    vocab.id,
-                    engCtrl.text,
-                    uzCtrl.text,
-                  );
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -238,9 +247,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The rival gap is computed LIVE below using _rivalXp - xp,
     // so it updates instantly when profile XP changes via ref.watch.
 
-    final streakDays = profile?.streakDays ??
+    final streakDays =
+        profile?.streakDays ??
         profileBox.get('streakDays', defaultValue: 0) as int;
-    final username = profile?.username ??
+    final username =
+        profile?.username ??
         profileBox.get('username', defaultValue: '') as String;
     final lastPlayed =
         profile?.lastPlayedDate ?? profileBox.get('lastPlayedDate') as String?;
@@ -250,6 +261,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -262,11 +274,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: const Text('🧠', style: TextStyle(fontSize: 16)),
             ),
             const SizedBox(width: 10),
-            Text('VocabGame',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                )),
+            Text(
+              'VocabGame',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
           ],
         ),
       ),
@@ -275,540 +289,705 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              // ─── Hero Header ────────────────────────────────────
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                padding: const EdgeInsets.all(20),
-                decoration: AppTheme.glassCard(isDark: isDark),
-                child: Column(
-                  children: [
-                    // Username + Streak row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: RefreshIndicator(
+            color: AppTheme.violet,
+            onRefresh: () async {
+              _loadClassData();
+              _fetchRival();
+              // Optional small delay for tactile feedback
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // ─── Hero Header ────────────────────────────────────
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    padding: const EdgeInsets.all(20),
+                    decoration: AppTheme.glassCard(isDark: isDark),
+                    child: Column(
                       children: [
-                        if (username.isNotEmpty)
-                          Row(
-                            children: [
-                              // Avatar
-                              Container(
-                                width: 38,
-                                height: 38,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: AppTheme.primaryGradient,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppTheme.violet
-                                          .withValues(alpha: 0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
+                        // Username + Streak row
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (username.isNotEmpty)
+                              Row(
+                                children: [
+                                  // Avatar
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: AppTheme.primaryGradient,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppTheme.violet.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      username[0].toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Hi, $username! 👋',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            StreakWidget(streakDays: streakDays),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        XpBarWidget(totalXp: xp),
+                      ],
+                    ),
+                  ),
+
+                  // ─── Assignments ────────────────────────────────────
+                  if (assignmentState.assignments.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.assignment,
+                            color: AppTheme.violet,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Assignments',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 100,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: assignmentState.assignments.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
+                          final assignment = assignmentState.assignments[index];
+                          final progress =
+                              assignmentState.progressMap[assignment.id];
+                          final mastered = progress?.wordsMastered ?? 0;
+                          final total = assignment.wordCount;
+                          final pct = total > 0 ? mastered / total : 0.0;
+                          final isCompleted = progress?.isCompleted ?? false;
+
+                          return GestureDetector(
+                            onTap: () async {
+                              if (_isLaunchingAssignment)
+                                return; // Locked while launching
+                              setState(() => _isLaunchingAssignment = true);
+                              try {
+                                // Fetch words for the assigned unit (same as library)
+                                final words =
+                                    await WordSessionService.selectSessionWords(
+                                      unitId: assignment.unitId,
+                                    );
+                                if (words.isEmpty) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'No words found for this assignment.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+                                // Convert to Vocab model
+                                final vocabWords =
+                                    words
+                                        .map(
+                                          (w) => Vocab(
+                                            id: w['id'] as String,
+                                            english: w['word'] as String,
+                                            uzbek: w['translation'] as String,
+                                          ),
+                                        )
+                                        .toList();
+                                if (!context.mounted) return;
+                                // Navigate to game selection (reuse library's screen)
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (_) => UnitGameSelectionScreen(
+                                          unitTitle: assignment.unitTitle,
+                                          unitId: assignment.unitId,
+                                          words: vocabWords,
+                                          assignmentId: assignment.id,
+                                        ),
+                                  ),
+                                );
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Error loading assignment: $e',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } finally {
+                                if (mounted)
+                                  setState(
+                                    () => _isLaunchingAssignment = false,
+                                  );
+                              }
+                            },
+                            child: Container(
+                              width: 240,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color:
+                                    isDark
+                                        ? const Color(0xFF1A1D3A)
+                                        : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color:
+                                      isCompleted
+                                          ? Colors.green.withValues(alpha: 0.3)
+                                          : AppTheme.violet.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.05),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          assignment.unitTitle,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (isCompleted)
+                                        const Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green,
+                                          size: 18,
+                                        ),
+                                    ],
+                                  ),
+                                  Text(
+                                    assignment.bookTitle,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const Spacer(),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: LinearProgressIndicator(
+                                          value: pct,
+                                          backgroundColor:
+                                              isCompleted
+                                                  ? Colors.green.withValues(
+                                                    alpha: 0.2,
+                                                  )
+                                                  : AppTheme.violet.withValues(
+                                                    alpha: 0.2,
+                                                  ),
+                                          color:
+                                              isCompleted
+                                                  ? Colors.green
+                                                  : AppTheme.violet,
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                          minHeight: 6,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '$mastered/$total',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color:
+                                              isCompleted ? Colors.green : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (assignment.dueDate != null) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Due: ${assignment.dueDate}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.orange,
+                                      ),
                                     ),
                                   ],
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+
+                  // ─── Teacher Message ────────────────────────────────
+                  if (_teacherMessage != null)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.violet.withValues(
+                          alpha: isDark ? 0.15 : 0.1,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.violet.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('📌', style: TextStyle(fontSize: 24)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Class Announcement',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.violet,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  username[0].toUpperCase(),
-                                  style: const TextStyle(
+                                const SizedBox(height: 2),
+                                Text(
+                                  _teacherMessage!.message,
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // ─── Play Today Banner ──────────────────────────────
+                  if (needsToPlayToday)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppTheme.fire.withValues(
+                              alpha: isDark ? 0.15 : 0.1,
+                            ),
+                            AppTheme.amber.withValues(
+                              alpha: isDark ? 0.1 : 0.06,
+                            ),
+                          ],
+                        ),
+                        borderRadius: AppTheme.borderRadiusMd,
+                        border: Border.all(
+                          color: AppTheme.fire.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('🔥', style: TextStyle(fontSize: 22)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Play today to keep your $streakDays-day streak alive!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.fire,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // ─── Rival Card ─────────────────────────────────────
+                  if (_rivalName != null)
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppTheme.error.withValues(
+                              alpha: isDark ? 0.12 : 0.08,
+                            ),
+                            AppTheme.violet.withValues(
+                              alpha: isDark ? 0.08 : 0.04,
+                            ),
+                          ],
+                        ),
+                        borderRadius: AppTheme.borderRadiusMd,
+                        border: Border.all(
+                          color: AppTheme.error.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('⚔️', style: TextStyle(fontSize: 20)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Your rival: ',
+                                    style: TextStyle(
+                                      color:
+                                          isDark
+                                              ? AppTheme.textSecondaryDark
+                                              : AppTheme.textSecondaryLight,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: _rivalName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.error,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: () {
+                                      final gap = _rivalXp - xp;
+                                      if (gap > 0) return ' — $gap XP ahead';
+                                      if (gap == 0) return ' — tied!';
+                                      return ' — you lead by ${gap.abs()} XP 🔥';
+                                    }(),
+                                    style: TextStyle(
+                                      color:
+                                          (_rivalXp - xp) > 0
+                                              ? (isDark
+                                                  ? AppTheme.textSecondaryDark
+                                                  : AppTheme.textSecondaryLight)
+                                              : AppTheme.success,
+                                      fontWeight:
+                                          (_rivalXp - xp) <= 0
+                                              ? FontWeight.w600
+                                              : null,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // ─── Quick Links Row ────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        _QuickChip(
+                          label: '🏆 Leaderboard',
+                          onTap: () => context.push('/home/leaderboard'),
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 8),
+                        _QuickChip(
+                          label: '📜 History',
+                          onTap: () => context.push('/duels/history'),
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 8),
+                        _QuickChip(
+                          label: '🏅 Hall of Fame',
+                          onTap: () => context.push('/home/hall-of-fame'),
+                          isDark: isDark,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ─── Practice Button ────────────────────────────────
+                  if (canPlay)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Container(
+                        width: double.infinity,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          gradient: AppTheme.primaryGradient,
+                          borderRadius: AppTheme.borderRadiusMd,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.violet.withValues(alpha: 0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => context.push('/home/games'),
+                            borderRadius: AppTheme.borderRadiusMd,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.play_circle_fill_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Play',
+                                  style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
                                     fontSize: 16,
+                                    letterSpacing: 0.5,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Hi, $username! 👋',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        StreakWidget(streakDays: streakDays),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    XpBarWidget(totalXp: xp),
-                  ],
-                ),
-              ),
-
-              // ─── Assignments ────────────────────────────────────
-              if (assignmentState.assignments.isNotEmpty) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.assignment, color: AppTheme.violet, size: 20),
-                      const SizedBox(width: 8),
-                      Text('Assignments', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  height: 130,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: assignmentState.assignments.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final assignment = assignmentState.assignments[index];
-                      final progress = assignmentState.progressMap[assignment.id];
-                      final mastered = progress?.wordsMastered ?? 0;
-                      final total = assignment.wordCount;
-                      final pct = total > 0 ? mastered / total : 0.0;
-                      final isCompleted = progress?.isCompleted ?? false;
-
-                      return GestureDetector(
-                        onTap: () async {
-                          if (_isLaunchingAssignment) return; // Locked while launching
-                          setState(() => _isLaunchingAssignment = true);
-                          try {
-                            // Fetch words for the assigned unit (same as library)
-                            final words = await WordSessionService.selectSessionWords(
-                              unitId: assignment.unitId,
-                            );
-                            if (words.isEmpty) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('No words found for this assignment.')),
-                                );
-                              }
-                              return;
-                            }
-                            // Convert to Vocab model
-                            final vocabWords = words
-                                .map((w) => Vocab(
-                                      id: w['id'] as String,
-                                      english: w['word'] as String,
-                                      uzbek: w['translation'] as String,
-                                    ))
-                                .toList();
-                            if (!context.mounted) return;
-                            // Navigate to game selection (reuse library's screen)
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => UnitGameSelectionScreen(
-                                  unitTitle: assignment.unitTitle,
-                                  unitId: assignment.unitId,
-                                  words: vocabWords,
-                                  assignmentId: assignment.id,
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Error loading assignment: $e')),
-                              );
-                            }
-                          } finally {
-                            if (mounted) setState(() => _isLaunchingAssignment = false);
-                          }
-                        },
-                        child: Container(
-                          width: 240,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: isCompleted ? Colors.green.withValues(alpha: 0.3) : AppTheme.violet.withValues(alpha: 0.2)),
-                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(assignment.unitTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ),
-                                  if (isCompleted) const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                                ],
-                              ),
-                              Text(assignment.bookTitle, style: const TextStyle(fontSize: 12, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
-                              const Spacer(),
-                              Row(
-                                children: [
-                                  Expanded(child: LinearProgressIndicator(value: pct, backgroundColor: isCompleted ? Colors.green.withValues(alpha: 0.2) : AppTheme.violet.withValues(alpha: 0.2), color: isCompleted ? Colors.green : AppTheme.violet, borderRadius: BorderRadius.circular(4), minHeight: 6)),
-                                  const SizedBox(width: 8),
-                                  Text('$mastered/$total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: isCompleted ? Colors.green : null)),
-                                ],
-                              ),
-                              if (assignment.dueDate != null) ...[
-                                const SizedBox(height: 6),
-                                Text('Due: ${assignment.dueDate}', style: const TextStyle(fontSize: 10, color: Colors.orange)),
                               ],
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-
-              // ─── Teacher Message ────────────────────────────────
-              if (_teacherMessage != null)
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.violet.withValues(alpha: isDark ? 0.15 : 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.violet.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('📌', style: TextStyle(fontSize: 24)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Class Announcement', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.violet, fontSize: 12)),
-                            const SizedBox(height: 2),
-                            Text(_teacherMessage!.message, style: const TextStyle(fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // ─── Play Today Banner ──────────────────────────────
-              if (needsToPlayToday)
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.fire.withValues(alpha: isDark ? 0.15 : 0.1),
-                        AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
-                      ],
-                    ),
-                    borderRadius: AppTheme.borderRadiusMd,
-                    border: Border.all(
-                      color: AppTheme.fire.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('🔥', style: TextStyle(fontSize: 22)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Play today to keep your $streakDays-day streak alive!',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.fire,
-                            fontSize: 13,
+                            ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
 
-              // ─── Rival Card ─────────────────────────────────────
-              if (_rivalName != null)
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.08),
-                        AppTheme.violet.withValues(alpha: isDark ? 0.08 : 0.04),
-                      ],
-                    ),
-                    borderRadius: AppTheme.borderRadiusMd,
-                    border: Border.all(
-                      color: AppTheme.error.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('⚔️', style: TextStyle(fontSize: 20)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text.rich(
-                          TextSpan(children: [
-                            TextSpan(
-                              text: 'Your rival: ',
-                              style: TextStyle(
-                                color: isDark
-                                    ? AppTheme.textSecondaryDark
-                                    : AppTheme.textSecondaryLight,
-                                fontSize: 13,
-                              ),
-                            ),
-                            TextSpan(
-                              text: _rivalName,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.error,
-                                fontSize: 13,
-                              ),
-                            ),
-                            TextSpan(
-                              text: () {
-                                final gap = _rivalXp - xp;
-                                if (gap > 0) return ' — $gap XP ahead';
-                                if (gap == 0) return ' — tied!';
-                                return ' — you lead by ${gap.abs()} XP 🔥';
-                              }(),
-                              style: TextStyle(
-                                color: (_rivalXp - xp) > 0
-                                    ? (isDark
-                                        ? AppTheme.textSecondaryDark
-                                        : AppTheme.textSecondaryLight)
-                                    : AppTheme.success,
-                                fontWeight:
-                                    (_rivalXp - xp) <= 0 ? FontWeight.w600 : null,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ]),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // ─── Quick Links Row ────────────────────────────────
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    _QuickChip(
-                      label: '🏆 Leaderboard',
-                      onTap: () => context.push('/home/leaderboard'),
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 8),
-                    _QuickChip(
-                      label: '📜 History',
-                      onTap: () => context.push('/duels/history'),
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 8),
-                    _QuickChip(
-                      label: '🏅 Hall of Fame',
-                      onTap: () => context.push('/home/hall-of-fame'),
-                      isDark: isDark,
-                    ),
-                  ],
-                ),
-              ),
-
-              // ─── Practice Button ────────────────────────────────
-              if (canPlay)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Container(
-                    width: double.infinity,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      gradient: AppTheme.primaryGradient,
-                      borderRadius: AppTheme.borderRadiusMd,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.violet.withValues(alpha: 0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => context.push('/home/games'),
-                        borderRadius: AppTheme.borderRadiusMd,
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.play_circle_fill_rounded,
-                                color: Colors.white, size: 24),
-                            SizedBox(width: 8),
-                            Text(
-                              'Play',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ─── Vocab List Header ──────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Your Vocabulary',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Row(
+                  // ─── Vocab List Header ──────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.06)
-                                : Colors.black.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(10),
+                        Text(
+                          'Your Vocabulary',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
                           ),
-                          child: Text(
-                            '${vocabList.length} words',
+                        ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    isDark
+                                        ? Colors.white.withValues(alpha: 0.06)
+                                        : Colors.black.withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${vocabList.length} words',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  color: AppTheme.violet,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ─── Vocab List ─────────────────────────────────────
+                  vocabList.isEmpty
+                      ? ListView(
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: 300,
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: AppTheme.violet.withValues(
+                                        alpha: isDark ? 0.1 : 0.06,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      Icons.menu_book_rounded,
+                                      size: 56,
+                                      color: AppTheme.violet.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Text(
+                                    'No vocabulary yet',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Tap the + button to add your first words!',
+                                    style: TextStyle(
+                                      color:
+                                          isDark
+                                              ? AppTheme.textSecondaryDark
+                                              : AppTheme.textSecondaryLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                      : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        itemCount: vocabList.length,
+                        itemBuilder: (context, index) {
+                          final vocab = vocabList[index];
+                          return VocabTile(
+                            key: ValueKey(vocab.id),
+                            vocab: vocab,
+                            onDelete: () {
+                              ref
+                                  .read(vocabProvider.notifier)
+                                  .deleteVocab(vocab.id);
+                            },
+                            onEdit: () => _showEditDialog(vocab),
+                          );
+                        },
+                      ),
+
+                  // ─── Progress bar (< 4 words) ──────────────────────
+                  if (!canPlay)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24.0,
+                        vertical: 8.0,
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              color:
+                                  isDark
+                                      ? Colors.white.withValues(alpha: 0.06)
+                                      : Colors.black.withValues(alpha: 0.04),
+                            ),
+                            child: FractionallySizedBox(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: vocabList.length / 4,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(4),
+                                  gradient: AppTheme.primaryGradient,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Add ${4 - vocabList.length} more words to play games',
                             style: TextStyle(
-                              fontWeight: FontWeight.w700,
                               fontSize: 13,
+                              fontWeight: FontWeight.w600,
                               color: AppTheme.violet,
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ],
-                ),
+                ],
               ),
-
-              // ─── Vocab List ─────────────────────────────────────
-              Expanded(
-                child: RefreshIndicator(
-                  color: AppTheme.violet,
-                  onRefresh: () async {
-                    _loadClassData();
-                    _fetchRival();
-                    // Optional small delay for tactile feedback
-                    await Future.delayed(const Duration(milliseconds: 500));
-                  },
-                  child: vocabList.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            SizedBox(
-                              height: 300,
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(20),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: AppTheme.violet
-                                            .withValues(alpha: isDark ? 0.1 : 0.06),
-                                      ),
-                                      child: Icon(
-                                        Icons.menu_book_rounded,
-                                        size: 56,
-                                        color: AppTheme.violet
-                                            .withValues(alpha: 0.5),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    Text('No vocabulary yet',
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        )),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Tap the + button to add your first words!',
-                                      style: TextStyle(
-                                        color: isDark
-                                            ? AppTheme.textSecondaryDark
-                                            : AppTheme.textSecondaryLight,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      : ListView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          itemCount: vocabList.length,
-                          itemBuilder: (context, index) {
-                            final vocab = vocabList[index];
-                            return VocabTile(
-                              key: ValueKey(vocab.id),
-                              vocab: vocab,
-                              onDelete: () {
-                                ref
-                                    .read(vocabProvider.notifier)
-                                    .deleteVocab(vocab.id);
-                              },
-                              onEdit: () => _showEditDialog(vocab),
-                            );
-                          },
-                        ),
-                ),
-              ),
-
-              // ─── Progress bar (< 4 words) ──────────────────────
-              if (!canPlay)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 24.0, vertical: 8.0),
-                  child: Column(
-                    children: [
-                      Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(4),
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.06)
-                              : Colors.black.withValues(alpha: 0.04),
-                        ),
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: vocabList.length / 4,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(4),
-                              gradient: AppTheme.primaryGradient,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Add ${4 - vocabList.length} more words to play games',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.violet,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
@@ -844,14 +1023,16 @@ class _QuickChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.05)
-                : Colors.black.withValues(alpha: 0.03),
+            color:
+                isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.black.withValues(alpha: 0.03),
             borderRadius: AppTheme.borderRadiusSm,
             border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.04),
+              color:
+                  isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.04),
             ),
           ),
           alignment: Alignment.center,
@@ -860,9 +1041,10 @@ class _QuickChip extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isDark
-                  ? AppTheme.textSecondaryDark
-                  : AppTheme.textSecondaryLight,
+              color:
+                  isDark
+                      ? AppTheme.textSecondaryDark
+                      : AppTheme.textSecondaryLight,
             ),
           ),
         ),
@@ -898,14 +1080,8 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    _scaleAnim = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.elasticOut,
-    );
-    _fadeAnim = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeIn,
-    );
+    _scaleAnim = CurvedAnimation(parent: _controller, curve: Curves.elasticOut);
+    _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
     _controller.forward();
   }
 
@@ -919,7 +1095,11 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (emoji, title, message) = switch (widget.milestone) {
-      3 => ('🔥', 'You\'re on a roll!', '${widget.currentStreak}-day streak! Keep it up!'),
+      3 => (
+        '🔥',
+        'You\'re on a roll!',
+        '${widget.currentStreak}-day streak! Keep it up!',
+      ),
       7 => ('💪', 'One week strong!', 'You\'re a habit now. Incredible!'),
       14 => ('🏆', 'Two weeks!', 'You\'re in the top players. Amazing!'),
       30 => ('👑', 'One month!', 'You are LEGENDARY. Unstoppable!'),
@@ -931,8 +1111,10 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
       child: ScaleTransition(
         scale: _scaleAnim,
         child: AlertDialog(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 32,
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -957,7 +1139,9 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
+                  horizontal: 20,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -986,9 +1170,10 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
               width: double.infinity,
               child: FilledButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Keep Going! 💪',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Keep Going! 💪',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
               ),
             ),
           ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:vocab_game/screens/update.dart';
 
 import 'games/fill_blank_game.dart';
 import 'games/flashcard_game.dart';
@@ -143,6 +144,11 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: _rootNavigatorKey,
       pageBuilder: (_, state) =>
           _buildPage(const JoinClassScreen(), state),
+    ),
+    GoRoute(
+      path: '/update',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) => _buildPage(const UpdateScreen(), state),
     ),
     GoRoute(
       path: '/onboarding/pin',

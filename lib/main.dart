@@ -9,6 +9,7 @@ import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:vocab_game/config/environment_constants.dart';
 import 'package:vocab_game/firebase_options.dart';
 import 'package:vocab_game/services/storage_provider.dart';
+import 'package:vocab_game/services/version_service.dart';
 
 import 'models/user_profile.dart';
 import 'router.dart';
@@ -54,6 +55,8 @@ void main() async {
 
   // Check streak status on app open
   _checkStreakOnOpen();
+
+  await AppVersionInfo.instance.init();
 
   runApp(const ProviderScope(child: VocabGameApp()));
 }
