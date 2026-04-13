@@ -154,7 +154,6 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
                     studentId: studentId,
                     classCode: classCode,
                     wordsMasteredDelta: _score,
-                    totalWords: _gameWords.length,
                   );
                   ref.read(assignmentProvider.notifier).loadStudentAssignments(
                     classCode: classCode,

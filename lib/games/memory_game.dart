@@ -185,7 +185,6 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
                     studentId: studentId,
                     classCode: classCode,
                     wordsMasteredDelta: score,
-                    totalWords: score,
                   );
                   ref.read(assignmentProvider.notifier).loadStudentAssignments(
                     classCode: classCode,

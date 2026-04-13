@@ -364,7 +364,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                       return GestureDetector(
                         onTap: () async {
-                          if (isCompleted || _isLaunchingAssignment) return; // Already done or locked
+                          if (_isLaunchingAssignment) return; // Locked while launching
                           setState(() => _isLaunchingAssignment = true);
                           try {
                             // Fetch words for the assigned unit (same as library)

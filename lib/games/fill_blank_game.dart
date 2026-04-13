@@ -186,7 +186,6 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
                 studentId: studentId,
                 classCode: classCode,
                 wordsMasteredDelta: _score,
-                totalWords: _gameVocab.length,
               );
               ref.read(assignmentProvider.notifier).loadStudentAssignments(
                 classCode: classCode,

@@ -169,7 +169,6 @@ class _QuizGameState extends ConsumerState<QuizGame>
                 studentId: studentId,
                 classCode: classCode,
                 wordsMasteredDelta: _score,
-                totalWords: _quizVocab.length,
               );
               ref.read(assignmentProvider.notifier).loadStudentAssignments(
                 classCode: classCode,

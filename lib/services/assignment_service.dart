@@ -150,8 +150,15 @@ class AssignmentService {
     required String studentId,
     required String classCode,
     required int wordsMasteredDelta,
-    required int totalWords,
   }) async {
+    // Fetch true total words dynamically from assignments table
+    final assignmentData = await _supabase
+        .from('assignments')
+        .select('word_count')
+        .eq('id', assignmentId)
+        .single();
+    final realTotalWords = assignmentData['word_count'] as int;
+
     // Check if a progress row already exists
     final existing = await _supabase
         .from('assignment_progress')
@@ -162,25 +169,25 @@ class AssignmentService {
 
     if (existing == null) {
       // First time this student practices this assignment — create row
-      final newMastered = wordsMasteredDelta.clamp(0, totalWords);
+      final newMastered = wordsMasteredDelta.clamp(0, realTotalWords);
       await _supabase.from('assignment_progress').insert({
         'assignment_id': assignmentId,
         'student_id': studentId,
         'class_code': classCode,
         'words_mastered': newMastered,
-        'total_words': totalWords,
-        'is_completed': newMastered >= totalWords,
+        'total_words': realTotalWords,
+        'is_completed': newMastered >= realTotalWords,
         'last_practiced_at': DateTime.now().toIso8601String(),
       });
     } else {
       // Row exists — increment words_mastered, cap at total_words
       final currentMastered = existing['words_mastered'] as int;
-      final newMastered = (currentMastered + wordsMasteredDelta).clamp(0, totalWords);
+      final newMastered = (currentMastered + wordsMasteredDelta).clamp(0, realTotalWords);
       await _supabase
           .from('assignment_progress')
           .update({
             'words_mastered': newMastered,
-            'is_completed': newMastered >= totalWords,
+            'is_completed': newMastered >= realTotalWords,
             'last_practiced_at': DateTime.now().toIso8601String(),
           })
           .eq('id', existing['id'] as String);
