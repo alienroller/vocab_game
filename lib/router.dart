@@ -27,6 +27,7 @@ import 'screens/profile_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/search_screen.dart';
 import 'models/class_student.dart';
+import 'models/vocab.dart';
 import 'screens/onboarding/class_code_reveal_screen.dart';
 import 'screens/onboarding/teacher_class_setup_screen.dart';
 import 'screens/teacher/teacher_analytics_screen.dart';
@@ -268,32 +269,57 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/games/quiz',
       parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (_, state) =>
-          _buildPage(const QuizGame(), state),
+      pageBuilder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return _buildPage(QuizGame(
+          customWords: extra?['customWords'] as List<Vocab>?,
+          assignmentId: extra?['assignmentId'] as String?,
+        ), state);
+      },
     ),
     GoRoute(
       path: '/games/flashcard',
       parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (_, state) =>
-          _buildPage(const FlashcardGame(), state),
+      pageBuilder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return _buildPage(FlashcardGame(
+          customWords: extra?['customWords'] as List<Vocab>?,
+          assignmentId: extra?['assignmentId'] as String?,
+        ), state);
+      },
     ),
     GoRoute(
       path: '/games/matching',
       parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (_, state) =>
-          _buildPage(const MatchingGame(), state),
+      pageBuilder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return _buildPage(MatchingGame(
+          customWords: extra?['customWords'] as List<Vocab>?,
+          assignmentId: extra?['assignmentId'] as String?,
+        ), state);
+      },
     ),
     GoRoute(
       path: '/games/memory',
       parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (_, state) =>
-          _buildPage(const MemoryGame(), state),
+      pageBuilder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return _buildPage(MemoryGame(
+          customWords: extra?['customWords'] as List<Vocab>?,
+          assignmentId: extra?['assignmentId'] as String?,
+        ), state);
+      },
     ),
     GoRoute(
       path: '/games/fill-blank',
       parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (_, state) =>
-          _buildPage(const FillBlankGame(), state),
+      pageBuilder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return _buildPage(FillBlankGame(
+          customWords: extra?['customWords'] as List<Vocab>?,
+          assignmentId: extra?['assignmentId'] as String?,
+        ), state);
+      },
     ),
 
     // ─── Search Overlay ──────────────────────────────────────────
@@ -335,6 +361,8 @@ final GoRouter appRouter = GoRouter(
             gameName: args['gameName'] as String,
             gameRoute: args['gameRoute'] as String,
             xpGained: args['xpGained'] as int? ?? 0,
+            customWords: args['customWords'] as List<Vocab>?,
+            assignmentId: args['assignmentId'] as String?,
           ),
           state,
         );

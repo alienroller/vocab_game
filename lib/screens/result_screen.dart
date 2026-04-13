@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/vocab.dart';
 import '../providers/profile_provider.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +19,8 @@ class ResultScreen extends ConsumerStatefulWidget {
   final String gameName;
   final String gameRoute;
   final int xpGained;
+  final List<Vocab>? customWords;
+  final String? assignmentId;
 
   const ResultScreen({
     super.key,
@@ -26,6 +29,8 @@ class ResultScreen extends ConsumerStatefulWidget {
     required this.gameName,
     required this.gameRoute,
     this.xpGained = 0,
+    this.customWords,
+    this.assignmentId,
   });
 
   @override
@@ -276,8 +281,13 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                           boxShadow: AppTheme.shadowGlow(AppTheme.violet),
                         ),
                         child: FilledButton.icon(
-                          onPressed: () =>
-                              context.pushReplacement(widget.gameRoute),
+                          onPressed: () => context.pushReplacement(
+                            widget.gameRoute,
+                            extra: {
+                              'customWords': widget.customWords,
+                              'assignmentId': widget.assignmentId,
+                            },
+                          ),
                           icon: const Icon(Icons.replay_rounded),
                           label: const Text('Play Again'),
                           style: FilledButton.styleFrom(

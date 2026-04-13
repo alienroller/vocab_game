@@ -542,35 +542,35 @@ class _UnitGameSelectionScreenState extends State<UnitGameSelectionScreen> {
         'icon': Icons.style_rounded,
         'gradient': const [Color(0xFF4FC3F7), Color(0xFF0288D1)],
         'description': 'Flip cards to memorize vocabulary',
-        'build': (_) => FlashcardGame(customWords: widget.words, assignmentId: widget.assignmentId),
+        'route': '/games/flashcard',
       },
       {
         'title': 'Quiz',
         'icon': Icons.quiz_rounded,
         'gradient': const [Color(0xFF66BB6A), Color(0xFF2E7D32)],
         'description': 'Test your knowledge with multiple choice',
-        'build': (_) => QuizGame(customWords: widget.words, assignmentId: widget.assignmentId),
+        'route': '/games/quiz',
       },
       {
         'title': 'Matching',
         'icon': Icons.join_inner_rounded,
         'gradient': const [Color(0xFFFFB74D), Color(0xFFE65100)],
         'description': 'Match English and Uzbek word pairs',
-        'build': (_) => MatchingGame(customWords: widget.words, assignmentId: widget.assignmentId),
+        'route': '/games/matching',
       },
       {
         'title': 'Memory',
         'icon': Icons.grid_view_rounded,
         'gradient': const [Color(0xFFCE93D8), Color(0xFF7B1FA2)],
         'description': 'Find matching pairs in a grid',
-        'build': (_) => MemoryGame(customWords: widget.words, assignmentId: widget.assignmentId),
+        'route': '/games/memory',
       },
       {
         'title': 'Fill in Blank',
         'icon': Icons.keyboard_rounded,
         'gradient': const [Color(0xFFEF5350), Color(0xFFC62828)],
         'description': 'Type the missing translated letters',
-        'build': (_) => FillBlankGame(customWords: widget.words, assignmentId: widget.assignmentId),
+        'route': '/games/fill-blank',
       },
     ];
 
@@ -609,11 +609,12 @@ class _UnitGameSelectionScreenState extends State<UnitGameSelectionScreen> {
                       onTap: () async {
                         if (_isNavigating) return;
                         setState(() => _isNavigating = true);
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: game['build'] as WidgetBuilder,
-                          ),
+                        await context.push(
+                          game['route'] as String,
+                          extra: {
+                            'customWords': widget.words,
+                            'assignmentId': widget.assignmentId,
+                          },
                         );
                         if (mounted) setState(() => _isNavigating = false);
                       },

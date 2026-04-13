@@ -171,6 +171,8 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
                 'gameName': 'Matching',
                 'gameRoute': '/games/matching',
                 'xpGained': _totalXp,
+                'customWords': widget.customWords,
+                'assignmentId': widget.assignmentId,
               });
             }
           });

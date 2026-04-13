@@ -203,6 +203,8 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
             'gameName': 'Fill in the Blank',
             'gameRoute': '/games/fill-blank',
             'xpGained': _totalXp,
+            'customWords': widget.customWords,
+            'assignmentId': widget.assignmentId,
           });
         }
       }

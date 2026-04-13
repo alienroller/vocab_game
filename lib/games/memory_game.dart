@@ -202,6 +202,8 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
                 'gameName': 'Memory',
                 'gameRoute': '/games/memory',
                 'xpGained': _totalXp,
+                'customWords': widget.customWords,
+                'assignmentId': widget.assignmentId,
               });
             }
           });

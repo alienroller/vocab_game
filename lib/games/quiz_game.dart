@@ -186,6 +186,8 @@ class _QuizGameState extends ConsumerState<QuizGame>
             'gameName': 'Quiz',
             'gameRoute': '/games/quiz',
             'xpGained': _totalXp,
+            'customWords': widget.customWords,
+            'assignmentId': widget.assignmentId,
           });
         }
       }
