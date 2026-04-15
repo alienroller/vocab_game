@@ -190,7 +190,9 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
                     classCode: classCode,
                     studentId: studentId,
                   );
-                } catch (_) {}
+                } catch (e, s) {
+                  debugPrint('Assignment progress update failed: $e\n$s');
+                }
               }
             }
 

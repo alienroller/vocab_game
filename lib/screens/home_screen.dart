@@ -187,7 +187,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _rivalXp = closestBelow['xp'] as int? ?? 0;
         });
       }
-    } catch (_) {}
+    } catch (e, s) {
+      debugPrint('Rival lookup failed: $e\n$s');
+    }
   }
 
   void _showEditDialog(Vocab vocab) {

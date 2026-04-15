@@ -43,7 +43,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       if (mounted && classInfo != null) {
         setState(() => _className = classInfo['class_name'] as String?);
       }
-    } catch (_) {}
+    } catch (e, s) {
+      debugPrint('Fetch class name failed: $e\n$s');
+    }
 
     // Fetch pinned message
     try {

@@ -1,11 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
+import '../services/date_utils.dart';
 import '../services/sync_service.dart';
 import '../services/xp_service.dart';
 
@@ -24,6 +25,29 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   }
 
   bool _isMutating = false; // BUG 15: Re-entrancy guard
+
+  /// A2 fix: Serialises concurrent writes (game completions, badge awards,
+  /// teacher promotions). Each mutation waits for the previous one to
+  /// complete before reading profile state — prevents lost updates when
+  /// two games finish nearly simultaneously.
+  Future<void> _pendingMutation = Future<void>.value();
+  Future<T> _withWriteLock<T>(Future<T> Function() op) {
+    final prev = _pendingMutation;
+    final completer = Completer<T>();
+    _pendingMutation = completer.future.then(
+      (_) {},
+      onError: (_) {},
+    );
+    // Run after the previous mutation settles, regardless of outcome.
+    prev.whenComplete(() async {
+      try {
+        completer.complete(await op());
+      } catch (e, s) {
+        completer.completeError(e, s);
+      }
+    });
+    return completer.future;
+  }
 
   /// Builds a UserProfile from the current Hive box data.
   UserProfile? _buildProfileFromHive() {
@@ -114,59 +138,70 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   /// All-in-one post-game session handler.
   /// Adds XP, records per-word accuracy, evaluates streak, and syncs to Supabase.
   /// This is the ONLY method games should call after finishing.
+  ///
+  /// A2 fix: Runs under a write lock so two games finishing at the same time
+  /// don't race on the Hive snapshot.
   Future<void> recordGameSession({
     required int xpGained,
     required int totalQuestions,
     required int correctAnswers,
-  }) async {
-    if (state == null) return;
-    final profile = state!;
+  }) {
+    return _withWriteLock(() async {
+      // Re-read state inside the lock so we see any mutation that just
+      // completed (e.g. a previous game session's write).
+      final snapshot = _buildProfileFromHive();
+      if (snapshot == null) return;
+      final profile = snapshot;
 
-    // Reset weekXp if a new Monday has arrived since the last reset
-    _checkWeekReset(profile);
+      // Reset weekXp if a new ISO week has arrived since the last reset
+      await _checkWeekReset(profile);
 
-    // Update XP
-    profile.xp += xpGained;
-    profile.weekXp += xpGained;
-    profile.level = XpService.levelFromXp(profile.xp);
+      // Update XP
+      profile.xp += xpGained;
+      profile.weekXp += xpGained;
+      profile.level = XpService.levelFromXp(profile.xp);
 
-    // Update accuracy stats (per-word, not per-session)
-    profile.totalWordsAnswered += totalQuestions;
-    profile.totalCorrect += correctAnswers;
+      // Update accuracy stats (per-word, not per-session)
+      profile.totalWordsAnswered += totalQuestions;
+      profile.totalCorrect += correctAnswers;
 
-    // BUG 4 fix: Evaluate streak (idempotent — safe to call every game session)
-    _evaluateStreak(profile);
+      // BUG 4 fix: Evaluate streak (idempotent — safe to call every session)
+      await _evaluateStreak(profile);
 
-    await _saveToHive(profile);
-    state = _cloneProfile(profile);
+      await _saveToHive(profile);
+      state = _cloneProfile(profile);
 
-    // Sync to cloud
-    await SyncService.syncProfile(state!);
+      // Sync to cloud — failures are queued inside syncProfile, don't block UX
+      try {
+        await SyncService.syncProfile(state!);
+      } catch (e, s) {
+        debugPrint('recordGameSession sync failed (queued): $e\n$s');
+      }
+    });
   }
 
-  /// Resets weekXp to 0 if the current calendar week (Monday-based)
-  /// differs from the week when weekXp was last reset.
-  void _checkWeekReset(UserProfile profile) {
-    final now = DateTime.now();
-    final monday = now.subtract(Duration(days: now.weekday - 1));
-    final currentMonday = DateFormat('yyyy-MM-dd').format(monday);
+  /// Resets weekXp to 0 if a new ISO-8601 week has started.
+  /// P6 fix: Uses ISO week (anchored to Thursday) so timezone changes
+  /// can't double-trigger or skip a reset.
+  Future<void> _checkWeekReset(UserProfile profile) async {
+    final currentWeek = AppDateUtils.isoWeekKey(DateTime.now());
 
     final box = Hive.box('userProfile');
-    final lastReset = box.get('weekXpResetDate') as String?;
+    final lastReset = box.get('weekXpResetKey') as String?;
 
-    if (lastReset != currentMonday) {
+    if (lastReset != currentWeek) {
       profile.weekXp = 0;
-      box.put('weekXp', 0);
-      box.put('weekXpResetDate', currentMonday);
+      await box.put('weekXp', 0);
+      await box.put('weekXpResetKey', currentWeek);
     }
   }
 
   /// BUG 4 fix: Evaluates and updates the streak based on today's date.
   /// Idempotent — safe to call multiple times per day (only updates once per day).
   /// Called ONLY from recordGameSession(), not from UI code.
-  void _evaluateStreak(UserProfile profile) {
+  Future<void> _evaluateStreak(UserProfile profile) async {
     final today = DateTime.now();
-    final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    final todayStr = AppDateUtils.ymd(today);
 
     // Already recorded today → do nothing (idempotency)
     if (profile.lastPlayedDate == todayStr) return;
@@ -192,46 +227,42 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     }
 
     final box = Hive.box('userProfile');
-    box.put('streakDays', newStreak);
-    box.put('lastPlayedDate', todayStr);
+    await box.put('streakDays', newStreak);
+    await box.put('lastPlayedDate', todayStr);
     profile.streakDays = newStreak;
     profile.lastPlayedDate = todayStr;
   }
 
   /// BUG 3 fix: Checks if weekly XP needs resetting. Called on app open/resume.
+  /// A7 fix: Sync failure is logged (was fire-and-forget).
   Future<void> checkAndResetWeekXp() async {
-    final profile = state;
-    if (profile == null) return;
+    return _withWriteLock(() async {
+      final profile = state;
+      if (profile == null) return;
 
-    final now = DateTime.now();
-    final currentWeekKey = _getIsoWeekKey(now);
+      final currentWeekKey = AppDateUtils.isoWeekKey(DateTime.now());
 
-    // Derive what week the last game was played
-    final lastDate = profile.lastPlayedDate;
-    if (lastDate == null) return; // Never played — nothing to reset
+      // Derive what week the last game was played
+      final lastDate = profile.lastPlayedDate;
+      if (lastDate == null) return; // Never played — nothing to reset
 
-    final lastPlayedWeekKey = _getIsoWeekKey(DateTime.parse(lastDate));
+      final lastPlayedWeekKey =
+          AppDateUtils.isoWeekKey(DateTime.parse(lastDate));
 
-    if (currentWeekKey != lastPlayedWeekKey) {
-      // A new ISO week has started — reset weekly XP
-      final box = Hive.box('userProfile');
-      box.put('weekXp', 0);
-      profile.weekXp = 0;
-      state = _cloneProfile(profile);
-      unawaited(SyncService.syncProfile(state!));
-    }
-  }
-
-  /// Helper: Returns a unique string for the ISO week (e.g., 2026-W15).
-  String _getIsoWeekKey(DateTime date) {
-    // In ISO 8601, the week belongs to the year of its Thursday.
-    final thursday = date.add(Duration(days: 4 - date.weekday));
-    // Jan 4th is always in Week 1.
-    final jan4 = DateTime(thursday.year, 1, 4);
-    final week1Thursday = jan4.add(Duration(days: 4 - jan4.weekday));
-    // Calculate week number based on difference in days.
-    final weekNumber = 1 + (thursday.difference(week1Thursday).inDays / 7).floor();
-    return '${thursday.year}-W${weekNumber.toString().padLeft(2, '0')}';
+      if (currentWeekKey != lastPlayedWeekKey) {
+        // A new ISO week has started — reset weekly XP
+        final box = Hive.box('userProfile');
+        await box.put('weekXp', 0);
+        await box.put('weekXpResetKey', currentWeekKey);
+        profile.weekXp = 0;
+        state = _cloneProfile(profile);
+        try {
+          await SyncService.syncProfile(state!);
+        } catch (e) {
+          debugPrint('Week-reset sync failed (queued): $e');
+        }
+      }
+    });
   }
 
   /// Sets the class code for this profile.
@@ -252,12 +283,13 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     if (state == null) return;
     final profile = state!;
 
-    // Update in Supabase first
+    // Update in Supabase first — rethrow so the UI can show an error.
     try {
       await Supabase.instance.client
           .from('profiles')
           .update({'username': newUsername}).eq('id', profile.id);
-    } catch (_) {
+    } catch (e, s) {
+      debugPrint('Username update failed for ${profile.id}: $e\n$s');
       rethrow;
     }
 
@@ -280,6 +312,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   }
 
   /// BUG 15 fix: Marks the user as a teacher with re-entrancy guard.
+  /// A7 fix: Awaits sync so errors surface to the caller.
   Future<void> setTeacher(bool isTeacher) async {
     // Guard against re-entrant calls
     if (_isMutating) return;
@@ -288,13 +321,17 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     try {
       if (state == null) return;
       final profile = state!;
-      if (profile.isTeacher == isTeacher) return; // Already the right value — no-op
+      if (profile.isTeacher == isTeacher) return; // Already the right value
 
       final box = Hive.box('userProfile');
-      box.put('isTeacher', isTeacher);
+      await box.put('isTeacher', isTeacher);
       profile.isTeacher = isTeacher;
       state = _cloneProfile(profile);
-      unawaited(SyncService.syncProfile(state!));
+      try {
+        await SyncService.syncProfile(state!);
+      } catch (e) {
+        debugPrint('setTeacher sync failed (queued): $e');
+      }
     } finally {
       _isMutating = false;
     }

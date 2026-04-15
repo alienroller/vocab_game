@@ -204,7 +204,9 @@ class SyncService {
             'data': {'id': userId},
             'timestamp': DateTime.now().toIso8601String(),
           });
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Failed to queue pending delete for $userId: $e');
+        }
 
         // Clear local data even offline (user expects immediate feedback)
         await _clearLocalData();
@@ -228,11 +230,15 @@ class SyncService {
     try {
       final box = Hive.box('userProfile');
       await box.clear();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Failed to clear userProfile box: $e');
+    }
 
     try {
       final syncBox = Hive.box('sync_queue');
       await syncBox.clear();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Failed to clear sync_queue box: $e');
+    }
   }
 }
