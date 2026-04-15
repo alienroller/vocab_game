@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -6,6 +7,7 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:vocab_game/services/version_service.dart';
+import 'package:vocab_game/widgets/empty_vocab_list.dart';
 
 import '../providers/profile_provider.dart';
 import '../providers/vocab_provider.dart';
@@ -261,7 +263,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -874,53 +880,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                   // ─── Vocab List ─────────────────────────────────────
                   vocabList.isEmpty
-                      ? ListView(
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: [
-                          SizedBox(
-                            height: 300,
-                            child: Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(20),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: AppTheme.violet.withValues(
-                                        alpha: isDark ? 0.1 : 0.06,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.menu_book_rounded,
-                                      size: 56,
-                                      color: AppTheme.violet.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 20),
-                                  Text(
-                                    'No vocabulary yet',
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Tap the + button to add your first words!',
-                                    style: TextStyle(
-                                      color:
-                                          isDark
-                                              ? AppTheme.textSecondaryDark
-                                              : AppTheme.textSecondaryLight,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
+                      ? EmptyVocabList()
                       : ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),

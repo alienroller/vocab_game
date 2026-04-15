@@ -8,6 +8,8 @@ class EnvironmentConstants {
 
   static const String url = String.fromEnvironment('SUPABASE_URL');
   static const String anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  static const String playStoreUrl = 'https://play.google.com/store/apps/details?id=com.vocabgame.vocab_game';
+  static const String appStoreUrl = 'https://apps.apple.com/us/app/vocabgame-english-uzbek/id6761130647';
 
   /// Gemini API key for speaking module AI evaluation.
   /// Optional — speaking module degrades gracefully without it.

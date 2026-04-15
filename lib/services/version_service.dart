@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,12 +29,10 @@ class _AppVersionInfoImpl implements AppVersionInfo {
   @override
   Future<bool> checkForUpdate() async {
     final supabase = Supabase.instance.client;
-    final platform =
-        Platform.isAndroid
-            ? 'android'
-            : Platform.isIOS
-            ? 'ios'
-            : 'web';
+
+    if (kIsWeb || kIsWasm) return false;
+
+    final platform = Platform.isAndroid ? 'android' : 'ios';
 
     final res = await supabase.functions.invoke(
       'getconfig',
@@ -41,7 +40,7 @@ class _AppVersionInfoImpl implements AppVersionInfo {
     );
 
     final minBuildNumber = res.data['min_build_number'] as int;
-    
+
     final currentBuildNumber = int.tryParse(_buildNumber) ?? 0;
 
     if (currentBuildNumber < minBuildNumber) return true;
