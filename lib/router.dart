@@ -8,6 +8,9 @@ import 'games/flashcard_game.dart';
 import 'games/matching_game.dart';
 import 'games/memory_game.dart';
 import 'games/quiz_game.dart';
+import 'screens/student/student_exam_lobby_screen.dart';
+import 'screens/student/student_exam_results_screen.dart';
+import 'screens/student/student_exam_screen.dart';
 import 'screens/student_nav_shell.dart';
 import 'screens/teacher_nav_shell.dart';
 import 'screens/duel/duel_game_screen.dart';
@@ -33,7 +36,11 @@ import 'screens/onboarding/class_code_reveal_screen.dart';
 import 'screens/onboarding/teacher_class_setup_screen.dart';
 import 'screens/teacher/teacher_analytics_screen.dart';
 import 'screens/teacher/teacher_classes_screen.dart';
+import 'screens/teacher/create_exam_screen.dart';
 import 'screens/teacher/teacher_dashboard_screen.dart';
+import 'screens/teacher/teacher_exam_lobby_screen.dart';
+import 'screens/teacher/teacher_exam_results_screen.dart';
+import 'screens/teacher/teacher_exams_screen.dart';
 import 'screens/teacher/teacher_library_screen.dart';
 import 'screens/teacher/teacher_profile_screen.dart';
 import 'screens/teacher/teacher_student_detail_screen.dart';
@@ -82,6 +89,7 @@ final _teacherClassesNavKey = GlobalKey<NavigatorState>(debugLabel: 't_class');
 final _teacherLibraryNavKey = GlobalKey<NavigatorState>(debugLabel: 't_lib');
 final _teacherAnalyticsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_analytics');
 final _teacherProfileNavKey = GlobalKey<NavigatorState>(debugLabel: 't_profile');
+final _teacherExamsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_exams');
 
 /// Centralized router — all navigation goes through named routes.
 ///
@@ -431,6 +439,47 @@ final GoRouter appRouter = GoRouter(
           _buildPage(const DuelHistoryScreen(), state),
     ),
 
+    // ─── Student exam flow ──────────────────────────────────────────────
+    GoRoute(
+      path: '/student/exam/:sessionId/lobby',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        return _buildPage(
+          StudentExamLobbyScreen(sessionId: sessionId),
+          state,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/student/exam/:sessionId/take',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        return _buildPage(
+          StudentExamScreen(sessionId: sessionId),
+          state,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/student/exam/:sessionId/results',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        final args = state.extra as Map<String, dynamic>? ?? <String, dynamic>{};
+        return _buildPage(
+          StudentExamResultsScreen(
+            sessionId: sessionId,
+            correctCount: (args['correctCount'] as int?) ?? 0,
+            totalCount: (args['totalCount'] as int?) ?? 0,
+            totalQuestions: (args['totalQuestions'] as int?) ?? 0,
+          ),
+          state,
+        );
+      },
+    ),
+
     // ─── Teacher Bottom Nav Shell ───────────────────────────────────────
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) =>
@@ -466,6 +515,43 @@ final GoRouter appRouter = GoRouter(
                   pageBuilder: (_, state) {
                     final collection = state.extra as Map<String, dynamic>;
                     return _buildPage(TeacherUnitListScreen(collection: collection), state);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          navigatorKey: _teacherExamsNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/exams',
+              pageBuilder: (_, state) =>
+                  _buildPage(const TeacherExamsScreen(), state),
+              routes: [
+                GoRoute(
+                  path: 'create',
+                  pageBuilder: (_, state) =>
+                      _buildPage(const CreateExamScreen(), state),
+                ),
+                GoRoute(
+                  path: ':sessionId/lobby',
+                  pageBuilder: (_, state) {
+                    final sessionId = state.pathParameters['sessionId']!;
+                    return _buildPage(
+                      TeacherExamLobbyScreen(sessionId: sessionId),
+                      state,
+                    );
+                  },
+                ),
+                GoRoute(
+                  path: ':sessionId/results',
+                  pageBuilder: (_, state) {
+                    final sessionId = state.pathParameters['sessionId']!;
+                    return _buildPage(
+                      TeacherExamResultsScreen(sessionId: sessionId),
+                      state,
+                    );
                   },
                 ),
               ],
