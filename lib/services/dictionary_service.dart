@@ -74,7 +74,11 @@ class DictionaryService {
     // Fallback initializing for safety, although main.dart usually already calls this
     try {
       await Hive.initFlutter();
-    } catch (_) {}
+    } catch (e) {
+      // Expected when Hive is already initialised — safe to ignore but log once
+      // so we don't swallow a genuine init failure silently.
+      debugPrint('Hive.initFlutter in DictionaryService ignored: $e');
+    }
 
     if (Hive.isBoxOpen(_wordCacheName)) {
       _wordCache = Hive.lazyBox<String>(_wordCacheName);

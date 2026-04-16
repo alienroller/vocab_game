@@ -39,6 +39,9 @@ dependencies:
   flutter_tts: ^4.2.0
   permission_handler: ^11.3.0
 
+  # --- Security (Hive encryption key, PIN hashing) ---
+  flutter_secure_storage: ^9.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -18,6 +18,7 @@ import 'library/library_screen.dart' show UnitGameSelectionScreen;
 import '../theme/app_theme.dart';
 import '../widgets/xp_bar_widget.dart';
 import '../widgets/streak_widget.dart';
+import '../widgets/exam_banner_widget.dart';
 import '../widgets/vocab_tile.dart';
 
 /// Home screen with premium gradient design, hero header, vocabulary list,
@@ -187,7 +188,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _rivalXp = closestBelow['xp'] as int? ?? 0;
         });
       }
-    } catch (_) {}
+    } catch (e, s) {
+      debugPrint('Rival lookup failed: $e\n$s');
+    }
   }
 
   void _showEditDialog(Vocab vocab) {
@@ -358,6 +361,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       ],
                     ),
                   ),
+
+                  // ─── Exam invitations ─────────────────────────────
+                  const ExamBannerWidget(),
 
                   // ─── Assignments ────────────────────────────────────
                   if (assignmentState.assignments.isNotEmpty) ...[

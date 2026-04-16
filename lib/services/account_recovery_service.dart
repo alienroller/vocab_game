@@ -5,27 +5,79 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'game_constants.dart';
+import 'storage_service.dart';
+
 /// Handles account recovery via username + 6-digit PIN.
 ///
 /// The PIN is salted with the user's profile ID and hashed (SHA-256)
 /// before storage — never stored as plain text.
-/// Rate limits: 3 failed attempts → 60 second cooldown.
+///
+/// Rate limiting (S7 hardening):
+///   • Failure counters are persisted in the encrypted `secureBox` so
+///     killing the app no longer resets the counter.
+///   • Lockout duration escalates exponentially:
+///     3 fails → 60s, 6 fails → 2m, 9 fails → 4m, … capped at 24h.
 ///
 /// Backward compatibility: existing unsalted (v1) hashes are accepted
 /// during recovery and PIN change, then silently upgraded to salted (v2).
 class AccountRecoveryService {
   static final _supabase = Supabase.instance.client;
 
-  // ─── Rate Limiting ──────────────────────────────────────────────
-  static int _failedAttempts = 0;
-  static DateTime? _lockoutUntil;
+  // ─── Persisted rate-limit keys ──────────────────────────────────
+  static const _attemptsKey = 'pin_failed_attempts';
+  static const _lockoutUntilKey = 'pin_lockout_until_iso';
+  static const _escalationLevelKey = 'pin_lockout_level';
+
+  static Box? _secureBoxOrNull() {
+    if (!Hive.isBoxOpen(StorageService.securityBoxName)) return null;
+    return Hive.box(StorageService.securityBoxName);
+  }
+
+  static int _readAttempts() =>
+      (_secureBoxOrNull()?.get(_attemptsKey, defaultValue: 0) as int?) ?? 0;
+
+  static DateTime? _readLockoutUntil() {
+    final iso = _secureBoxOrNull()?.get(_lockoutUntilKey) as String?;
+    if (iso == null) return null;
+    try {
+      return DateTime.parse(iso);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int _readEscalationLevel() =>
+      (_secureBoxOrNull()?.get(_escalationLevelKey, defaultValue: 0) as int?) ??
+          0;
+
+  static Future<void> _writeAttempts(int value) async {
+    await _secureBoxOrNull()?.put(_attemptsKey, value);
+  }
+
+  static Future<void> _writeLockoutUntil(DateTime? value) async {
+    final box = _secureBoxOrNull();
+    if (box == null) return;
+    if (value == null) {
+      await box.delete(_lockoutUntilKey);
+    } else {
+      await box.put(_lockoutUntilKey, value.toIso8601String());
+    }
+  }
+
+  static Future<void> _writeEscalationLevel(int value) async {
+    await _secureBoxOrNull()?.put(_escalationLevelKey, value);
+  }
 
   /// Checks if recovery attempts are currently locked out.
   static bool get isLockedOut {
-    if (_lockoutUntil == null) return false;
-    if (DateTime.now().isAfter(_lockoutUntil!)) {
-      _failedAttempts = 0;
-      _lockoutUntil = null;
+    final until = _readLockoutUntil();
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      // Lockout expired — clear attempt counter but KEEP escalation level so
+      // a second lockout in the same burst is longer (defeats kill-and-retry).
+      _writeAttempts(0);
+      _writeLockoutUntil(null);
       return false;
     }
     return true;
@@ -33,59 +85,55 @@ class AccountRecoveryService {
 
   /// Returns seconds remaining in lockout, or 0 if not locked.
   static int get lockoutSecondsRemaining {
-    if (_lockoutUntil == null) return 0;
-    final remaining = _lockoutUntil!.difference(DateTime.now()).inSeconds;
+    final until = _readLockoutUntil();
+    if (until == null) return 0;
+    final remaining = until.difference(DateTime.now()).inSeconds;
     return remaining > 0 ? remaining : 0;
+  }
+
+  /// Returns the lockout duration for the given escalation level.
+  /// 0 = 60s, 1 = 120s, 2 = 240s, ... capped at 24h.
+  static Duration _lockoutDurationFor(int level) {
+    final seconds = GameConstants.initialPinLockout.inSeconds * (1 << level);
+    final capped =
+        seconds > GameConstants.maxPinLockout.inSeconds
+            ? GameConstants.maxPinLockout.inSeconds
+            : seconds;
+    return Duration(seconds: capped);
   }
 
   // ─── PIN Hashing ────────────────────────────────────────────────
 
-  /// Hashes a PIN using SHA-256 with the profile ID as a salt (v2).
-  ///
-  /// Salting ensures the same PIN produces different hashes for different
-  /// users, making precomputed rainbow tables useless.
   static String _hashSalted(String pin, String profileId) {
     final bytes = utf8.encode('$profileId:${pin.trim()}');
     return sha256.convert(bytes).toString();
   }
 
-  /// Legacy unsalted hash (v1) — used only for verifying old hashes
-  /// during the migration period.
   static String _hashLegacy(String pin) {
     final bytes = utf8.encode(pin.trim());
     return sha256.convert(bytes).toString();
   }
 
-  /// Verifies a PIN against a stored hash, supporting both v1 (unsalted)
-  /// and v2 (salted) formats. Returns true if the PIN matches either format.
   static bool _verifyPin(String pin, String profileId, String storedHash) {
-    // Try v2 (salted) first — the current format
     if (_hashSalted(pin, profileId) == storedHash) return true;
-
-    // Fall back to v1 (legacy unsalted) for existing users
     if (_hashLegacy(pin) == storedHash) return true;
-
     return false;
   }
 
-  /// Upgrades a v1 (unsalted) hash to v2 (salted) in both Supabase and Hive.
-  /// Called silently after a successful v1 verification.
   static Future<void> _upgradeHashIfNeeded(
     String pin,
     String profileId,
     String storedHash,
   ) async {
     final saltedHash = _hashSalted(pin, profileId);
-
-    // Already v2 — nothing to do
     if (storedHash == saltedHash) return;
 
-    // The stored hash is v1 (legacy) — upgrade it
     try {
       await _supabase
           .from('profiles')
           .update({'pin_hash': saltedHash}).eq('id', profileId);
       Hive.box('userProfile').put('pinHash', saltedHash);
+      _secureBoxOrNull()?.put('pinHash', saltedHash);
       debugPrint('PIN hash upgraded to salted format for profile $profileId');
     } catch (e) {
       debugPrint('PIN hash upgrade failed (non-critical): $e');
@@ -94,9 +142,6 @@ class AccountRecoveryService {
 
   // ─── Registration ───────────────────────────────────────────────
 
-  /// Saves the PIN hash to Supabase during onboarding.
-  /// Call this AFTER the profile has been created in Supabase.
-  /// Always stores in v2 (salted) format.
   static Future<bool> savePin({
     required String profileId,
     required String pin,
@@ -108,6 +153,7 @@ class AccountRecoveryService {
           .update({'pin_hash': hash}).eq('id', profileId);
 
       Hive.box('userProfile').put('pinHash', hash);
+      _secureBoxOrNull()?.put('pinHash', hash);
       return true;
     } catch (e) {
       debugPrint('Save PIN failed: $e');
@@ -117,13 +163,6 @@ class AccountRecoveryService {
 
   // ─── Recovery ───────────────────────────────────────────────────
 
-  /// Attempts to recover an account by username + PIN.
-  ///
-  /// Returns the full profile map on success, null on failure.
-  /// Enforces rate limiting (3 attempts → 60s lockout).
-  ///
-  /// Flow: look up by username first, then verify the salted PIN hash
-  /// locally. Supports legacy unsalted hashes and auto-upgrades them.
   static Future<Map<String, dynamic>?> recoverAccount({
     required String username,
     required String pin,
@@ -131,7 +170,7 @@ class AccountRecoveryService {
     if (isLockedOut) return null;
 
     try {
-      // Step 1: Look up profile by username only (case-insensitive)
+      // Step 1: Look up profile by username (case-insensitive)
       final result = await _supabase
           .from('profiles')
           .select()
@@ -139,7 +178,7 @@ class AccountRecoveryService {
           .maybeSingle();
 
       if (result == null) {
-        _recordFailedAttempt();
+        await _recordFailedAttempt();
         return null;
       }
 
@@ -148,13 +187,14 @@ class AccountRecoveryService {
       final storedHash = result['pin_hash'] as String?;
 
       if (storedHash == null || !_verifyPin(pin, profileId, storedHash)) {
-        _recordFailedAttempt();
+        await _recordFailedAttempt();
         return null;
       }
 
-      // Success — reset rate limiter
-      _failedAttempts = 0;
-      _lockoutUntil = null;
+      // Success — reset rate limiter (both counters AND escalation level)
+      await _writeAttempts(0);
+      await _writeLockoutUntil(null);
+      await _writeEscalationLevel(0);
 
       // Silently upgrade legacy hash to salted format
       await _upgradeHashIfNeeded(pin, profileId, storedHash);
@@ -169,11 +209,19 @@ class AccountRecoveryService {
     }
   }
 
-  /// Records a failed recovery attempt and triggers lockout at 3 failures.
-  static void _recordFailedAttempt() {
-    _failedAttempts++;
-    if (_failedAttempts >= 3) {
-      _lockoutUntil = DateTime.now().add(const Duration(seconds: 60));
+  /// Records a failed recovery attempt and triggers lockout at [maxPinAttempts].
+  /// Escalation level survives app restarts, preventing kill-and-retry brute force.
+  static Future<void> _recordFailedAttempt() async {
+    final attempts = _readAttempts() + 1;
+    await _writeAttempts(attempts);
+
+    if (attempts >= GameConstants.maxPinAttempts) {
+      final level = _readEscalationLevel();
+      final duration = _lockoutDurationFor(level);
+      await _writeLockoutUntil(DateTime.now().add(duration));
+      await _writeEscalationLevel(level + 1);
+      debugPrint(
+          'PIN lockout triggered (level $level → ${duration.inSeconds}s)');
     }
   }
 
@@ -193,20 +241,23 @@ class AccountRecoveryService {
     await box.put('isTeacher', profile['is_teacher'] ?? false);
     await box.put('pinHash', profile['pin_hash']);
     await box.put('hasOnboarded', true);
+
+    // Mirror the PIN hash into the encrypted security box as well.
+    _secureBoxOrNull()?.put('pinHash', profile['pin_hash']);
   }
 
   // ─── PIN Change ─────────────────────────────────────────────────
 
-  /// Changes the PIN for the current user. Requires the old PIN for verification.
-  /// Supports verifying against both v1 and v2 hashes, always saves as v2.
   static Future<bool> changePin({
     required String profileId,
     required String oldPin,
     required String newPin,
   }) async {
     try {
+      // Prefer the encrypted copy if it's present.
       final storedHash =
-          Hive.box('userProfile').get('pinHash') as String?;
+          (_secureBoxOrNull()?.get('pinHash') as String?) ??
+              Hive.box('userProfile').get('pinHash') as String?;
 
       if (storedHash == null || !_verifyPin(oldPin, profileId, storedHash)) {
         return false;

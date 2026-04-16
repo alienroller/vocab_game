@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:vocab_game/services/key_constants.dart';
@@ -117,8 +118,12 @@ class FirebaseService {
 
             await _saveTokenToSupabase(newToken);
           })
-          .onError((err) {});
-    } catch (_) {}
+          .onError((err) {
+            debugPrint('FCM token refresh error: $err');
+          });
+    } catch (e, s) {
+      debugPrint('FCM token refresh listener failed: $e\n$s');
+    }
   }
 
   static Future<void> _saveTokenToSupabase(String token) async {
@@ -201,15 +206,19 @@ class FirebaseService {
   //
   // static void _handleLaunchUrl(CoreType? coreType) {}
 
-  static subscribeFCMTopics() async {
+  static Future<void> subscribeFCMTopics() async {
     try {
-      FirebaseMessaging.instance.subscribeToTopic(_topic);
-    } catch (_) {}
+      await FirebaseMessaging.instance.subscribeToTopic(_topic);
+    } catch (e) {
+      debugPrint('FCM subscribeToTopic($_topic) failed: $e');
+    }
   }
 
   static Future<void> unsubscribeFCMTopics() async {
     try {
       await FirebaseMessaging.instance.unsubscribeFromTopic(_topic);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('FCM unsubscribeFromTopic($_topic) failed: $e');
+    }
   }
 }

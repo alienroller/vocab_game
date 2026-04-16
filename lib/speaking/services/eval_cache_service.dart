@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/speaking_models.dart';
 import 'speech_service.dart';
@@ -121,7 +122,9 @@ class EvalCacheService {
       for (final key in keys) {
         await prefs.remove(key);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Failed to clear eval cache: $e');
+    }
   }
 
   // ─── Internal ──────────────────────────────────────────────────

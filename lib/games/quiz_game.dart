@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/game_constants.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -45,8 +46,9 @@ class _QuizGameState extends ConsumerState<QuizGame>
     final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
     _allVocab = allVocab;
     _quizVocab = List<Vocab>.from(_allVocab)..shuffle(Random());
-    if (widget.customWords == null && _quizVocab.length > 10) {
-      _quizVocab = _quizVocab.sublist(0, 10);
+    if (widget.customWords == null &&
+        _quizVocab.length > GameConstants.defaultSessionSize) {
+      _quizVocab = _quizVocab.sublist(0, GameConstants.defaultSessionSize);
     }
 
     _generateOptions();
@@ -63,13 +65,18 @@ class _QuizGameState extends ConsumerState<QuizGame>
         .toList()
       ..shuffle(random);
       
-    final selectedDistractors = distractors.take(3).map((v) => v.uzbek).toList();
-    
+    final selectedDistractors = distractors
+        .take(GameConstants.multipleChoiceDistractors)
+        .map((v) => v.uzbek)
+        .toList();
+
     // Fallback if the user has < 4 total words in their entire dictionary
-    if (selectedDistractors.length < 3) {
-      final fallbacks = ['olma', 'kitob', 'mashina', 'uy', 'qalam', 'maktab', 'suv', 'non'];
-      fallbacks.shuffle(random);
-      while (selectedDistractors.length < 3 && fallbacks.isNotEmpty) {
+    if (selectedDistractors.length < GameConstants.multipleChoiceDistractors) {
+      final fallbacks = List<String>.from(GameConstants.fallbackDistractors)
+        ..shuffle(random);
+      while (selectedDistractors.length <
+              GameConstants.multipleChoiceDistractors &&
+          fallbacks.isNotEmpty) {
         final f = fallbacks.removeLast();
         if (f != currentWord.uzbek && !selectedDistractors.contains(f)) {
           selectedDistractors.add(f);
@@ -112,13 +119,13 @@ class _QuizGameState extends ConsumerState<QuizGame>
 
     // Calculate XP for this answer
     final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
-    final secondsLeft = max(0, 20 - elapsed);
+    final secondsLeft = max(0, GameConstants.questionTimerSeconds - elapsed);
     final streakDays =
         Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
     final xpGained = XpService.calculateXp(
       correct: isCorrect,
       secondsLeft: secondsLeft,
-      maxSeconds: 20,
+      maxSeconds: GameConstants.questionTimerSeconds,
       streakDays: streakDays,
     );
 
@@ -137,12 +144,12 @@ class _QuizGameState extends ConsumerState<QuizGame>
 
     // Hide XP float after animation
     if (isCorrect) {
-      Future.delayed(const Duration(milliseconds: 1200), () {
+      Future.delayed(GameConstants.xpFloatDuration, () {
         if (mounted) setState(() => _showXpFloat = false);
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 1500), () async {
+    Future.delayed(GameConstants.answerRevealDelay, () async {
       if (!mounted) return;
       
       if (_currentIndex < _quizVocab.length - 1) {
@@ -174,7 +181,9 @@ class _QuizGameState extends ConsumerState<QuizGame>
                 classCode: classCode,
                 studentId: studentId,
               );
-            } catch (_) {}
+            } catch (e, s) {
+              debugPrint('Assignment progress update failed: $e\n$s');
+            }
           }
         }
 

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'game_constants.dart';
+
 /// Manages 1v1 live duel lifecycle.
 ///
 /// Flow: create → accept → play → finish.
@@ -90,6 +92,13 @@ class DuelService {
   }
 
   /// Finishes the duel — determines winner and awards XP.
+  ///
+  /// P4 fix: Previously if the first XP RPC succeeded and the second failed,
+  /// the duel was marked "finished" but only one player got XP. We now:
+  ///   1. Mark the row as `settling` (not "finished") while awarding XP.
+  ///   2. If either XP RPC fails, try to revert the row back to "active" so
+  ///      the UI can retry or surface an error.
+  ///   3. Only after both XP RPCs succeed do we commit `finished`.
   static Future<Map<String, dynamic>?> finishDuel({
     required String duelId,
     required String challengerId,
@@ -97,48 +106,97 @@ class DuelService {
     required int challengerScore,
     required int opponentScore,
   }) async {
+    String? winnerId;
+    final int challengerXp;
+    final int opponentXp;
+
+    if (challengerScore > opponentScore) {
+      winnerId = challengerId;
+      challengerXp = GameConstants.duelWinnerXp;
+      opponentXp = GameConstants.duelLoserXp;
+    } else if (opponentScore > challengerScore) {
+      winnerId = opponentId;
+      challengerXp = GameConstants.duelLoserXp;
+      opponentXp = GameConstants.duelWinnerXp;
+    } else {
+      challengerXp = GameConstants.duelDrawXp;
+      opponentXp = GameConstants.duelDrawXp;
+    }
+
+    // Step 1: mark the duel as settling (intermediate state).
     try {
-      String? winnerId;
-      int challengerXp = 0;
-      int opponentXp = 0;
-
-      if (challengerScore > opponentScore) {
-        winnerId = challengerId;
-        challengerXp = 50; // winner bonus
-        opponentXp = 20; // participation
-      } else if (opponentScore > challengerScore) {
-        winnerId = opponentId;
-        challengerXp = 20;
-        opponentXp = 50;
-      } else {
-        // Draw
-        challengerXp = 30;
-        opponentXp = 30;
-      }
-
       await _supabase.from('duels').update({
-        'status': 'finished',
+        'status': 'settling',
         'winner_id': winnerId,
         'challenger_xp_gain': challengerXp,
         'opponent_xp_gain': opponentXp,
-        'finished_at': DateTime.now().toIso8601String(),
+        'settling_at': DateTime.now().toIso8601String(),
       }).eq('id', duelId);
-
-      // Award XP to both players
-      await _supabase.rpc('increment_xp',
-          params: {'profile_id': challengerId, 'amount': challengerXp});
-      await _supabase.rpc('increment_xp',
-          params: {'profile_id': opponentId, 'amount': opponentXp});
-
-      return {
-        'winner_id': winnerId,
-        'challenger_xp': challengerXp,
-        'opponent_xp': opponentXp,
-      };
     } catch (e) {
-      debugPrint('Finish duel failed: $e');
+      debugPrint('Finish duel (mark settling) failed: $e');
       return null;
     }
+
+    // Step 2: award XP to both players. Track what succeeded so we can
+    // compensate if the second call fails.
+    bool challengerAwarded = false;
+    bool opponentAwarded = false;
+    try {
+      await _supabase.rpc('increment_xp',
+          params: {'profile_id': challengerId, 'amount': challengerXp});
+      challengerAwarded = true;
+
+      await _supabase.rpc('increment_xp',
+          params: {'profile_id': opponentId, 'amount': opponentXp});
+      opponentAwarded = true;
+    } catch (e) {
+      debugPrint('Duel XP award failed (rolling back): $e');
+
+      // Compensate the one that did land, so the cluster stays consistent.
+      if (challengerAwarded && !opponentAwarded) {
+        try {
+          await _supabase.rpc('increment_xp', params: {
+            'profile_id': challengerId,
+            'amount': -challengerXp,
+          });
+        } catch (rollbackErr) {
+          debugPrint('Challenger XP rollback failed (needs manual fix): '
+              '$rollbackErr');
+        }
+      }
+
+      // Revert the duel row so the UI can retry rather than leaving it
+      // stranded in "settling".
+      try {
+        await _supabase.from('duels').update({
+          'status': 'active',
+          'winner_id': null,
+          'challenger_xp_gain': null,
+          'opponent_xp_gain': null,
+          'settling_at': null,
+        }).eq('id', duelId);
+      } catch (revertErr) {
+        debugPrint('Duel revert failed (stuck in settling): $revertErr');
+      }
+      return null;
+    }
+
+    // Step 3: commit — only now flip to finished.
+    try {
+      await _supabase.from('duels').update({
+        'status': 'finished',
+        'finished_at': DateTime.now().toIso8601String(),
+      }).eq('id', duelId);
+    } catch (e) {
+      debugPrint('Duel commit to finished failed (XP already awarded): $e');
+      // XP is already on both accounts; next retry can move the row forward.
+    }
+
+    return {
+      'winner_id': winnerId,
+      'challenger_xp': challengerXp,
+      'opponent_xp': opponentXp,
+    };
   }
 
   /// Gets pending duel invitations for a user.

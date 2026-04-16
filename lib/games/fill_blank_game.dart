@@ -191,7 +191,9 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
                 classCode: classCode,
                 studentId: studentId,
               );
-            } catch (_) {}
+            } catch (e, s) {
+              debugPrint('Assignment progress update failed: $e\n$s');
+            }
           }
         }
 
