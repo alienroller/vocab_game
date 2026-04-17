@@ -98,10 +98,10 @@ serve(async (req) => {
       return new Response('question not found', { status: 404 });
     }
 
-    // Monotonic order check: can't go backwards.
-    if (question.order_index < participant.current_order_index) {
-      return new Response('already answered this question', { status: 409 });
-    }
+    // Note: we intentionally do NOT enforce a monotonic order_index check
+    // here. The client shuffles question order per student (anti-cheating),
+    // so students legitimately submit in a non-monotonic order. Duplicate
+    // submissions are still blocked below by the `existing` row lookup.
 
     // Per-question timer enforcement (allow 2s grace for network).
     if (participant.current_question_served_at) {
@@ -147,10 +147,10 @@ serve(async (req) => {
 
     // ── Advance participant pointer ──────────────────────────────────
 
-    const nextIndex = question.order_index + 1;
-    const isLast = nextIndex >= session.question_count;
-
-    // Count how many this student got correct so far (including this one).
+    // Count how many this student got correct/answered so far (includes the
+    // answer we just inserted). We use the answered count — not order_index —
+    // to decide whether this was the final question, because the client
+    // shuffles question order per student.
     const { count: correctSoFar } = await admin
       .from('exam_answers')
       .select('id', { count: 'exact', head: true })
@@ -163,6 +163,9 @@ serve(async (req) => {
       .select('id', { count: 'exact', head: true })
       .eq('session_id', body.sessionId)
       .eq('student_id', studentId);
+
+    const nextIndex = question.order_index + 1;
+    const isLast = (answeredSoFar ?? 0) >= session.question_count;
 
     if (isLast) {
       // Student finished the exam.
