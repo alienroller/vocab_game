@@ -58,9 +58,9 @@ class ExamService {
     required int totalSeconds,
     required List<Map<String, String>> words,
   }) async {
-    final resp = await _supa.functions.invoke(
+    final resp = await _invoke(
       'create-exam',
-      body: <String, dynamic>{
+      <String, dynamic>{
         'userId': _userId,
         'classCode': classCode,
         'title': title,
@@ -72,11 +72,33 @@ class ExamService {
         'words': words,
       },
     );
-    if (resp.status != 200) {
-      throw Exception('create-exam failed (${resp.status}): ${resp.data}');
-    }
     final data = resp.data as Map<String, dynamic>;
     return data['sessionId'] as String;
+  }
+
+  /// Wraps `functions.invoke` so gateway-level errors (e.g. 401 from JWT
+  /// verification when the anon key can't be verified) surface as a clean,
+  /// user-readable message instead of the raw `FunctionException` toString.
+  static Future<FunctionResponse> _invoke(
+    String name,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      final resp = await _supa.functions.invoke(name, body: body);
+      if (resp.status != 200) {
+        throw Exception('$name failed (${resp.status}): ${resp.data}');
+      }
+      return resp;
+    } on FunctionException catch (e) {
+      if (e.status == 401 || e.status == 403) {
+        throw Exception(
+          "Couldn't reach the exam service — please check your connection "
+          'and try again. (If this keeps happening, the server may need a '
+          'redeploy.)',
+        );
+      }
+      throw Exception('$name failed (${e.status}): ${e.details}');
+    }
   }
 
   /// Lists this teacher's sessions, most recent first.
@@ -133,13 +155,10 @@ class ExamService {
   /// Invokes the `start-exam` Edge Function. Flips session to in_progress,
   /// marks joiners as in_progress, marks non-joiners as absent.
   static Future<void> startSession(String sessionId) async {
-    final resp = await _supa.functions.invoke(
+    await _invoke(
       'start-exam',
-      body: <String, dynamic>{'userId': _userId, 'sessionId': sessionId},
+      <String, dynamic>{'userId': _userId, 'sessionId': sessionId},
     );
-    if (resp.status != 200) {
-      throw Exception('start-exam failed (${resp.status}): ${resp.data}');
-    }
   }
 
   /// Cancels a still-in-lobby session. No-op if already started.
@@ -162,13 +181,10 @@ class ExamService {
 
   /// Invokes the `join-exam` Edge Function.
   static Future<Map<String, dynamic>> joinExam(String sessionId) async {
-    final resp = await _supa.functions.invoke(
+    final resp = await _invoke(
       'join-exam',
-      body: <String, dynamic>{'userId': _userId, 'sessionId': sessionId},
+      <String, dynamic>{'userId': _userId, 'sessionId': sessionId},
     );
-    if (resp.status != 200) {
-      throw Exception('join-exam failed (${resp.status}): ${resp.data}');
-    }
     return Map<String, dynamic>.from(resp.data as Map);
   }
 
@@ -305,9 +321,9 @@ class ExamService {
     required String answer,
     required int secondsTaken,
   }) async {
-    final resp = await _supa.functions.invoke(
+    final resp = await _invoke(
       'submit-answer',
-      body: <String, dynamic>{
+      <String, dynamic>{
         'userId': _userId,
         'sessionId': sessionId,
         'questionId': questionId,
@@ -315,9 +331,6 @@ class ExamService {
         'secondsTaken': secondsTaken,
       },
     );
-    if (resp.status != 200) {
-      throw Exception('submit-answer failed (${resp.status}): ${resp.data}');
-    }
     return Map<String, dynamic>.from(resp.data as Map);
   }
 

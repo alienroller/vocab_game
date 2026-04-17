@@ -1,0 +1,26 @@
+# Supabase project config.
+#
+# The exam Edge Functions use the "trust-the-client" model: they receive the
+# caller's profile UUID in the request body and enforce authorization inside
+# the function (service-role check against classes.teacher_id). The app never
+# calls supabase.auth.signIn…, so no Supabase Auth session exists — the
+# Flutter SDK would attach only the anon key as a bearer token.
+#
+# Supabase's default gateway JWT verification (verify_jwt = true) rejects
+# these calls with 401 Unauthorized whenever the anon JWT can't be verified
+# against the deployed project's secret (e.g. after a key rotation or a
+# cross-project deploy). Turning verify_jwt off for these functions removes
+# the redundant gateway check and lets the function's own teacher_id
+# verification be the single source of truth.
+
+[functions.create-exam]
+verify_jwt = false
+
+[functions.start-exam]
+verify_jwt = false
+
+[functions.join-exam]
+verify_jwt = false
+
+[functions.submit-answer]
+verify_jwt = false
