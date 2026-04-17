@@ -84,6 +84,7 @@ class ExamLobbyNotifier extends StateNotifier<ExamLobbyState> {
   RealtimeChannel? _partChannel;
   RealtimeChannel? _sessChannel;
   RealtimeChannel? _answersChannel;
+  Timer? _pollTimer;
 
   Future<void> _init() async {
     try {
@@ -109,6 +110,14 @@ class ExamLobbyNotifier extends StateNotifier<ExamLobbyState> {
     _sessChannel =
         ExamService.subscribeToSession(_sessionId, _onSessionUpdate);
     _answersChannel = _subscribeToAnswers();
+
+    // Fallback poll every 3s so the teacher's view of join status /
+    // session status / answer progress still refreshes if realtime
+    // events are delayed or missing.
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      _refreshAll();
+    });
   }
 
   Future<void> _refetchParticipants() async {
@@ -207,18 +216,39 @@ class ExamLobbyNotifier extends StateNotifier<ExamLobbyState> {
 
   Future<void> startExam() async {
     await ExamService.startSession(_sessionId);
+    // Don't rely solely on realtime — pull the fresh session + participant
+    // state ourselves so the teacher's UI updates immediately after Start.
+    await _refreshAll();
   }
 
   Future<void> cancelExam() async {
     await ExamService.cancelSession(_sessionId);
+    await _refreshAll();
   }
 
   Future<void> endExam() async {
     await ExamService.endSession(_sessionId);
+    await _refreshAll();
+  }
+
+  /// Manual full refresh of session + participants + progress. Used as a
+  /// fallback after teacher actions so the UI updates even when realtime
+  /// events are delayed or missing.
+  Future<void> _refreshAll() async {
+    try {
+      final session = await ExamService.fetchSession(_sessionId);
+      final participants = await ExamService.fetchParticipants(_sessionId);
+      if (!mounted) return;
+      state = state.copyWith(session: session, participants: participants);
+      await _rebuildProgress(participants);
+    } catch (e, s) {
+      debugPrint('ExamLobby manual refresh failed: $e\n$s');
+    }
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     try {
       _partChannel?.unsubscribe();
     } catch (_) {}

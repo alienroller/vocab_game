@@ -61,6 +61,7 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
 
   final String _sessionId;
   dynamic _sessChannel;
+  Timer? _pollTimer;
 
   Future<void> _init() async {
     try {
@@ -74,6 +75,22 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
     }
 
     _sessChannel = ExamService.subscribeToSession(_sessionId, _onSessionUpdate);
+
+    // Fallback poll every 3s in case realtime events are delayed/missing —
+    // catches status transitions (lobby → in_progress → completed) so the
+    // student's UI can navigate even when realtime is unavailable.
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      if (!mounted) return;
+      try {
+        final fresh = await ExamService.fetchSession(_sessionId);
+        if (!mounted || fresh == null) return;
+        // Only update if something actually changed (avoid needless rebuilds).
+        if (fresh.status != state.session?.status ||
+            fresh.startedAt != state.session?.startedAt) {
+          state = state.copyWith(session: fresh);
+        }
+      } catch (_) {/* swallow — next tick retries */}
+    });
   }
 
   void _onSessionUpdate(ExamSession updated) {
@@ -96,6 +113,7 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     try {
       _sessChannel?.unsubscribe();
     } catch (_) {}
