@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -136,6 +137,10 @@ class _TeacherExamLobbyScreenState
 
     return Column(
       children: [
+        // While waiting for students, surface the class code big and
+        // copyable so the teacher can quickly tell the class where to go.
+        if (session.isLobby) _classCodeCard(context, session, isDark),
+
         _statusBanner(session, lobby, isDark),
 
         // Summary stats row for in_progress / completed
@@ -150,6 +155,84 @@ class _TeacherExamLobbyScreenState
                   : _lobbyList(lobby, isDark),
         ),
       ],
+    );
+  }
+
+  /// Prominent, tappable class-code card shown during the lobby phase.
+  /// Tapping copies the code to the clipboard so the teacher can paste
+  /// it into a chat / dictate it to the class.
+  Widget _classCodeCard(
+    BuildContext context,
+    dynamic session,
+    bool isDark,
+  ) {
+    final code = (session.classCode as String?) ?? '';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Material(
+        color: AppTheme.violet.withValues(alpha: isDark ? 0.18 : 0.1),
+        borderRadius: AppTheme.borderRadiusMd,
+        child: InkWell(
+          borderRadius: AppTheme.borderRadiusMd,
+          onTap: () async {
+            await Clipboard.setData(ClipboardData(text: code));
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Class code "$code" copied'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: AppTheme.violet,
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                const Icon(Icons.group_rounded,
+                    color: AppTheme.violet, size: 26),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Share with the class',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: AppTheme.violet.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        code,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2,
+                          color: AppTheme.violet,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.violet.withValues(alpha: 0.14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.copy_rounded,
+                      color: AppTheme.violet, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

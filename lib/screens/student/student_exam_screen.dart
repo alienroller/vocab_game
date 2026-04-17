@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -240,59 +241,97 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
     _showFinishScreen();
   }
 
+  /// Optimistic-UI answer submit.
+  ///
+  /// Grades the tap against the locally-cached `correct_answer` and shows
+  /// green/red INSTANTLY — no waiting on the network. The server submit
+  /// runs in the background with retries and swallows benign 409s
+  /// ("already answered") so a slow network never produces a red banner
+  /// or leaves the student stuck on a question.
   Future<void> _submitAnswer(String answer) async {
-    if (_submitting || _finished) return;
+    if (_submitting || _showingResult || _finished) return;
     final q = _questions[_currentIndex];
     final questionId = q['id'].toString();
+    final correctAnswer = (q['correct_answer'] as String?)?.trim() ?? '';
     final secondsTaken = _questionStartTime != null
         ? DateTime.now().difference(_questionStartTime!).inSeconds
         : _perQuestionSeconds;
 
+    // Grade locally. Timeouts are always wrong; otherwise compare trimmed,
+    // case-insensitive (same rule the server uses).
+    final isTimedOut = answer == '__timed_out__';
+    final isCorrect = !isTimedOut &&
+        answer.trim().toLowerCase() == correctAnswer.toLowerCase();
+
+    // Light tap feedback so the UI feels responsive even on slow networks.
+    if (!isTimedOut) {
+      unawaited(HapticFeedback.lightImpact());
+    }
+
+    _questionTimer?.cancel();
     setState(() {
       _submitting = true;
+      _showingResult = true;
       _selectedAnswer = answer;
+      _lastAnswerCorrect = isCorrect;
+      _lastCorrectAnswer = correctAnswer;
+      _answeredIds.add(questionId);
+      _totalAnswered++;
+      if (isCorrect) _correctCount++;
     });
-    _questionTimer?.cancel();
 
-    try {
-      final result = await ExamService.submitAnswer(
-        sessionId: widget.sessionId,
-        questionId: questionId,
-        answer: answer,
-        secondsTaken: secondsTaken,
-      );
+    // Fire-and-forget the server submit. Retries silently on flaky network.
+    unawaited(_sendSubmitInBackground(
+      questionId: questionId,
+      answer: answer,
+      secondsTaken: secondsTaken,
+    ));
 
-      if (!mounted) return;
+    // Short pause so the student sees the green/red feedback, then advance.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    _advanceToNext();
+  }
 
-      final isCorrect = result['isCorrect'] as bool? ?? false;
-      final correctAnswer = result['correctAnswer'] as String? ?? '';
-      final finished = result['finished'] as bool? ?? false;
-
-      setState(() {
-        _submitting = false;
-        _showingResult = true;
-        _lastAnswerCorrect = isCorrect;
-        _lastCorrectAnswer = correctAnswer;
-        _answeredIds.add(questionId);
-        _totalAnswered++;
-        if (isCorrect) _correctCount++;
-        if (finished) _finished = true;
-      });
-
-      // Show result for 1.5s then advance.
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      if (!mounted) return;
-      _advanceToNext();
-    } catch (e, s) {
-      debugPrint('submit-answer error: $e\n$s');
-      if (!mounted) return;
-      setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Submit failed: $e'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+  /// Server-side submit, retried silently so transient failures never hit
+  /// the UI. Treats 409 "already answered" as success (the server already
+  /// has this answer — a common outcome when a previous request's response
+  /// was lost but the row was written).
+  Future<void> _sendSubmitInBackground({
+    required String questionId,
+    required String answer,
+    required int secondsTaken,
+  }) async {
+    const maxAttempts = 4;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await ExamService.submitAnswer(
+          sessionId: widget.sessionId,
+          questionId: questionId,
+          answer: answer,
+          secondsTaken: secondsTaken,
+        );
+        return; // success
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        // Server already has this answer — benign, nothing to do.
+        if (msg.contains('already answered')) return;
+        // Terminal states — retrying will never succeed.
+        if (msg.contains('you already finished') ||
+            msg.contains('session is not in progress') ||
+            msg.contains('session time expired')) {
+          debugPrint('submit-answer terminal: $e');
+          return;
+        }
+        if (attempt < maxAttempts) {
+          // Exponential-ish backoff: 2s, 4s, 6s.
+          await Future<void>.delayed(Duration(seconds: attempt * 2));
+          continue;
+        }
+        debugPrint(
+            'submit-answer final failure after $attempt attempts: $e');
+      }
     }
   }
 
@@ -303,6 +342,14 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
     }
     setState(() {
       _currentIndex++;
+      // Defensive: skip any already-answered questions. Protects against
+      // resume edge cases where server-side answers from a prior attempt
+      // landed on shuffled positions that aren't contiguous.
+      while (_currentIndex < _questions.length &&
+          _answeredIds
+              .contains(_questions[_currentIndex]['id'].toString())) {
+        _currentIndex++;
+      }
       _selectedAnswer = null;
       _lastAnswerCorrect = null;
       _lastCorrectAnswer = null;
@@ -419,51 +466,74 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
             ),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              // Per-question timer bar
-              _QuestionTimerBar(
-                secondsLeft: _secondsLeft,
-                totalSeconds: _perQuestionSeconds,
-              ),
-              const SizedBox(height: 24),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
+              children: [
+                // Top row: circular countdown + score pill
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _CircularTimer(
+                      secondsLeft: _secondsLeft,
+                      totalSeconds: _perQuestionSeconds,
+                    ),
+                    _ScorePill(
+                      correct: _correctCount,
+                      total: _totalAnswered,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 28),
 
-              // Score so far
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle_rounded,
-                      size: 16, color: Colors.green.shade400),
-                  const SizedBox(width: 4),
-                  Text('$_correctCount / $_totalAnswered',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13)),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Prompt
-              Text(
-                q['prompt'] as String,
-                style: const TextStyle(
-                    fontSize: 28, fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text('What is the Uzbek translation?',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark
-                        ? AppTheme.textSecondaryDark
-                        : AppTheme.textSecondaryLight,
-                  )),
-              const SizedBox(height: 32),
-
-              // Options
-              ...shuffledOptions.map((opt) => _buildOption(opt, isDark)),
-            ],
+                // Question + options — animate between questions.
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.08, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: SingleChildScrollView(
+                      key: ValueKey<int>(_currentIndex),
+                      child: Column(
+                        children: [
+                          Text(
+                            q['prompt'] as String,
+                            style: const TextStyle(
+                                fontSize: 30, fontWeight: FontWeight.w800),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'What is the Uzbek translation?',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark
+                                  ? AppTheme.textSecondaryDark
+                                  : AppTheme.textSecondaryLight,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          ...shuffledOptions
+                              .map((opt) => _buildOption(opt, isDark)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -558,10 +628,12 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
   }
 }
 
-class _QuestionTimerBar extends StatelessWidget {
+/// Circular countdown ring. Colour shifts green → amber → red as the per-
+/// question timer drains, so students feel the pressure at a glance.
+class _CircularTimer extends StatelessWidget {
   final int secondsLeft;
   final int totalSeconds;
-  const _QuestionTimerBar({
+  const _CircularTimer({
     required this.secondsLeft,
     required this.totalSeconds,
   });
@@ -574,27 +646,84 @@ class _QuestionTimerBar extends StatelessWidget {
         : fraction > 0.25
             ? Colors.amber
             : Colors.redAccent;
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: fraction.clamp(0.0, 1.0),
-            minHeight: 6,
-            backgroundColor: color.withValues(alpha: 0.12),
-            valueColor: AlwaysStoppedAnimation<Color>(color),
+    return SizedBox(
+      width: 68,
+      height: 68,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 68,
+            height: 68,
+            child: CircularProgressIndicator(
+              value: fraction.clamp(0.0, 1.0),
+              strokeWidth: 5,
+              backgroundColor: color.withValues(alpha: 0.14),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '${secondsLeft}s',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: color,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$secondsLeft',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                'sec',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  height: 1,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Running score chip. Green pill with correct/answered so the student
+/// sees their run at a glance.
+class _ScorePill extends StatelessWidget {
+  final int correct;
+  final int total;
+  const _ScorePill({required this.correct, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.green.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle_rounded, size: 16, color: Colors.green.shade400),
+          const SizedBox(width: 6),
+          Text(
+            '$correct / $total',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              color: Colors.green.shade600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

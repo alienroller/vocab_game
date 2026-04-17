@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -164,94 +163,237 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
     );
   }
 
+  void _selectAllUnits() {
+    setState(() {
+      _selectedUnitIds.clear();
+      var total = 0;
+      for (final u in _units) {
+        _selectedUnitIds.add(u['id'].toString());
+        total += (u['word_count'] as num?)?.toInt() ?? 0;
+      }
+      _selectedWordCount = total;
+    });
+  }
+
+  void _clearUnits() {
+    setState(() {
+      _selectedUnitIds.clear();
+      _selectedWordCount = 0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(title: const Text('New exam')),
+      appBar: AppBar(
+        title: const Text('New exam'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: _loadingCollections
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 children: [
-                  TextFormField(
-                    controller: _titleCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Exam title',
-                      hintText: 'e.g. Unit 3–5 mid-term',
-                      border: OutlineInputBorder(),
-                    ),
-                    textInputAction: TextInputAction.next,
-                    validator: (v) =>
-                        (v == null || v.trim().length < 3) ? 'At least 3 characters' : null,
-                  ),
-                  const SizedBox(height: 16),
-                  _sectionHeader('Content'),
-                  _buildCollectionDropdown(),
-                  const SizedBox(height: 8),
-                  _buildUnitPicker(isDark),
-                  const SizedBox(height: 20),
-                  _sectionHeader('Timing'),
-                  _buildNumericField(
-                    label: 'Questions',
-                    value: _questionCount,
-                    min: 1,
-                    max: 100,
-                    onChanged: (v) => setState(() => _questionCount = v),
-                  ),
-                  _buildNumericField(
-                    label: 'Seconds per question',
-                    value: _perQuestionSeconds,
-                    min: 5,
-                    max: 300,
-                    onChanged: (v) => setState(() => _perQuestionSeconds = v),
-                  ),
-                  _buildNumericField(
-                    label: 'Total time (minutes)',
-                    value: _totalMinutes,
-                    min: 1,
-                    max: 120,
-                    onChanged: (v) => setState(() => _totalMinutes = v),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.violet,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Create exam',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                  ),
+                  _buildTitleCard(isDark),
+                  const SizedBox(height: 14),
+                  _buildContentCard(isDark),
+                  const SizedBox(height: 14),
+                  _buildTimingCard(isDark),
+                  const SizedBox(height: 14),
+                  _buildStatusCard(),
                 ],
               ),
             ),
+      bottomNavigationBar: _buildBottomBar(),
     );
   }
 
-  Widget _sectionHeader(String text) => Padding(
-        padding: const EdgeInsets.only(top: 6, bottom: 10),
-        child: Text(text,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+  // ─── Cards ─────────────────────────────────────────────────────────
+
+  Widget _buildTitleCard(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: _cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionLabel('EXAM TITLE'),
+          const SizedBox(height: 6),
+          TextFormField(
+            controller: _titleCtrl,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Unit 3–5 mid-term',
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 6),
+            ),
+            style:
+                const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            textInputAction: TextInputAction.next,
+            validator: (v) => (v == null || v.trim().length < 3)
+                ? 'At least 3 characters'
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContentCard(bool isDark) {
+    return Container(
+      decoration: _cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: _sectionLabel('CONTENT'),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _buildCollectionDropdown(),
+          ),
+          if (_selectedCollectionId != null) ...[
+            const SizedBox(height: 4),
+            _buildUnitsSection(isDark),
+          ] else
+            const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimingCard(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: _cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionLabel('TIMING'),
+          const SizedBox(height: 10),
+          _buildStepperRow(
+            icon: Icons.help_outline_rounded,
+            label: 'Questions',
+            value: _questionCount,
+            min: 1,
+            max: 100,
+            suffix: '',
+            onChanged: (v) => setState(() => _questionCount = v),
+          ),
+          const Divider(height: 22),
+          _buildStepperRow(
+            icon: Icons.timer_outlined,
+            label: 'Per question',
+            value: _perQuestionSeconds,
+            min: 5,
+            max: 300,
+            step: 5,
+            suffix: 's',
+            onChanged: (v) => setState(() => _perQuestionSeconds = v),
+          ),
+          const Divider(height: 22),
+          _buildStepperRow(
+            icon: Icons.hourglass_bottom_rounded,
+            label: 'Total time',
+            value: _totalMinutes,
+            min: 1,
+            max: 120,
+            suffix: ' min',
+            onChanged: (v) => setState(() => _totalMinutes = v),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    final hasUnits = _selectedUnitIds.isNotEmpty;
+    final enoughWords = _selectedWordCount >= _questionCount;
+
+    if (!hasUnits) {
+      return _statusTile(
+        icon: Icons.info_outline_rounded,
+        color: Colors.blueGrey,
+        title: 'Pick some units',
+        subtitle:
+            'Choose at least one unit above so the exam has words to draw from.',
       );
+    }
+    if (!enoughWords) {
+      return _statusTile(
+        icon: Icons.warning_amber_rounded,
+        color: AppTheme.amber,
+        title: 'Not enough words',
+        subtitle:
+            'Selected units have $_selectedWordCount words, but the exam asks for $_questionCount questions. Lower the count or pick more units.',
+      );
+    }
+    final unitsWord = _selectedUnitIds.length == 1 ? 'unit' : 'units';
+    return _statusTile(
+      icon: Icons.check_circle_rounded,
+      color: AppTheme.success,
+      title: 'Ready to create',
+      subtitle:
+          '$_questionCount questions drawn from $_selectedWordCount words · '
+          '${_selectedUnitIds.length} $unitsWord · '
+          '${_perQuestionSeconds}s each · $_totalMinutes min total.',
+    );
+  }
+
+  Widget _buildBottomBar() {
+    final enabled = !_submitting && _selectedUnitIds.isNotEmpty;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor:
+                enabled ? AppTheme.violet : Colors.grey.withValues(alpha: 0.3),
+            minimumSize: const Size.fromHeight(52),
+          ),
+          onPressed: enabled ? _submit : null,
+          icon: _submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.5, color: Colors.white),
+                )
+              : const Icon(Icons.check_rounded, color: Colors.white, size: 22),
+          label: Text(
+            _submitting ? 'Creating…' : 'Create exam',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Sub-widgets ───────────────────────────────────────────────────
 
   Widget _buildCollectionDropdown() {
     return DropdownButtonFormField<String>(
       value: _selectedCollectionId,
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         labelText: 'Book / Collection',
-        border: OutlineInputBorder(),
+        border: OutlineInputBorder(borderRadius: AppTheme.borderRadiusSm),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppTheme.borderRadiusSm,
+          borderSide: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppTheme.borderRadiusSm,
+          borderSide: const BorderSide(color: AppTheme.violet, width: 1.5),
+        ),
       ),
       items: _collections
           .map((c) => DropdownMenuItem(
@@ -268,94 +410,262 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
     );
   }
 
-  Widget _buildUnitPicker(bool isDark) {
-    if (_selectedCollectionId == null) {
-      return const SizedBox.shrink();
-    }
-    if (_loadingUnits) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_units.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Text('No units in this collection yet.',
-            style: TextStyle(color: Colors.grey)),
-      );
-    }
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.1)
-                : Colors.black.withValues(alpha: 0.1)),
-        borderRadius: AppTheme.borderRadiusSm,
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+  Widget _buildUnitsSection(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header row: Units label + Select all / Clear
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              const Text('Units',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              const Spacer(),
+              if (_units.isNotEmpty) ...[
+                TextButton(
+                  onPressed:
+                      _selectedUnitIds.length == _units.length ? null : _selectAllUnits,
+                  child: const Text('Select all',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+                TextButton(
+                  onPressed: _selectedUnitIds.isEmpty ? null : _clearUnits,
+                  style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                  child: const Text('Clear',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (_loadingUnits)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_units.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Text('No units in this collection yet.',
+                style: TextStyle(color: Colors.grey)),
+          )
+        else
+          ..._units.map((u) => _buildUnitTile(u, isDark)),
+        // Running selection pill (only when something picked)
+        if (_selectedUnitIds.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.violet.withValues(alpha: 0.12),
+              borderRadius: AppTheme.borderRadiusSm,
+            ),
             child: Row(
               children: [
-                const Text('Units',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                const Spacer(),
-                Text(
-                  '${_selectedUnitIds.length} selected  •  $_selectedWordCount words',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                const Icon(Icons.library_books_rounded,
+                    color: AppTheme.violet, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${_selectedUnitIds.length} ${_selectedUnitIds.length == 1 ? 'unit' : 'units'} · '
+                    '$_selectedWordCount words available',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: AppTheme.violet),
+                  ),
                 ),
               ],
             ),
-          ),
-          const Divider(height: 1),
-          ..._units.map((u) => CheckboxListTile(
-                dense: true,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: Text(
-                  'Unit ${u['unit_number'] ?? ''}: ${u['title']}',
-                  style: const TextStyle(fontSize: 14),
+          )
+        else
+          const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildUnitTile(Map<String, dynamic> u, bool isDark) {
+    final id = u['id'].toString();
+    final selected = _selectedUnitIds.contains(id);
+    final unitNumber = u['unit_number']?.toString() ?? '';
+    final rawTitle = (u['title'] ?? '').toString();
+    // Drop the ugly "Unit 1: Unit 1" duplication. If the title is just
+    // "Unit N" (or blank), show only the unit number; otherwise show both.
+    final isRedundant = rawTitle.isEmpty ||
+        rawTitle.toLowerCase() == 'unit $unitNumber'.toLowerCase();
+    final display =
+        isRedundant ? 'Unit $unitNumber' : 'Unit $unitNumber · $rawTitle';
+    final wordCount = (u['word_count'] as num?)?.toInt() ?? 0;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _toggleUnit(u),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: Checkbox(
+                  value: selected,
+                  onChanged: (_) => _toggleUnit(u),
+                  activeColor: AppTheme.violet,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
                 ),
-                subtitle: Text('${u['word_count'] ?? 0} words',
-                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                value: _selectedUnitIds.contains(u['id'].toString()),
-                onChanged: (_) => _toggleUnit(u),
-                activeColor: AppTheme.violet,
-              )),
-        ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  display,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                '$wordCount words',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? AppTheme.textSecondaryDark
+                      : AppTheme.textSecondaryLight,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildNumericField({
+  Widget _buildStepperRow({
+    required IconData icon,
     required String label,
     required int value,
     required int min,
     required int max,
+    required String suffix,
+    int step = 1,
     required ValueChanged<int> onChanged,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        initialValue: value.toString(),
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: 'Min $min, max $max',
-          border: const OutlineInputBorder(),
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: AppTheme.violet),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(label,
+              style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w600)),
         ),
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        validator: (v) {
-          final n = int.tryParse(v ?? '');
-          if (n == null) return 'Enter a number';
-          if (n < min || n > max) return 'Between $min and $max';
-          return null;
-        },
-        onChanged: (v) {
-          final n = int.tryParse(v);
-          if (n != null && n >= min && n <= max) onChanged(n);
-        },
+        _stepperButton(
+          icon: Icons.remove_rounded,
+          enabled: value > min,
+          onTap: () => onChanged((value - step).clamp(min, max)),
+        ),
+        SizedBox(
+          width: 72,
+          child: Text(
+            '$value$suffix',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+        ),
+        _stepperButton(
+          icon: Icons.add_rounded,
+          enabled: value < max,
+          onTap: () => onChanged((value + step).clamp(min, max)),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepperButton({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: enabled
+              ? AppTheme.violet.withValues(alpha: 0.14)
+              : Colors.grey.withValues(alpha: 0.08),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: enabled ? AppTheme.violet : Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  // ─── Shared styling ────────────────────────────────────────────────
+
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
+          color: Colors.grey.shade500,
+        ),
+      );
+
+  BoxDecoration _cardDecoration(bool isDark) => BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
+        borderRadius: AppTheme.borderRadiusMd,
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.06),
+        ),
+      );
+
+  Widget _statusTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: AppTheme.borderRadiusMd,
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                        fontSize: 14)),
+                const SizedBox(height: 3),
+                Text(subtitle,
+                    style: TextStyle(
+                        fontSize: 12, color: color.withValues(alpha: 0.9))),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
