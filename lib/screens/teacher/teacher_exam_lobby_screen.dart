@@ -344,17 +344,17 @@ class _TeacherExamLobbyScreenState
   Future<void> _start(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Start exam?'),
         content: const Text(
             'All joined students will begin immediately. '
             'Late-joiners can still enter while the timer runs.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogCtx, false),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogCtx, true),
               child: const Text('Start')),
         ],
       ),
@@ -377,16 +377,16 @@ class _TeacherExamLobbyScreenState
   Future<void> _cancel(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Cancel exam?'),
         content: const Text('This will discard the exam.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogCtx, false),
               child: const Text('No')),
           FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogCtx, true),
               child: const Text('Cancel exam')),
         ],
       ),
@@ -409,17 +409,17 @@ class _TeacherExamLobbyScreenState
   Future<void> _endNow(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('End exam now?'),
         content: const Text(
             'Students who haven\'t finished will be marked as timed out.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogCtx, false),
               child: const Text('Keep going')),
           FilledButton(
               style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogCtx, true),
               child: const Text('End now')),
         ],
       ),
