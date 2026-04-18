@@ -56,21 +56,13 @@ class _LessonRunnerScreenState extends ConsumerState<LessonRunnerScreen> {
         final state = runner.state;
 
         if (state.completed) {
-          // Post-frame so we don't navigate during build.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            final stats = runner.buildStats();
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute<void>(
-                builder: (_) => ScenarioCompleteScreen(
-                  scenario: scenario,
-                  stats: stats,
-                ),
-              ),
-            );
-          });
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          // Render the complete screen in-place so it stays inside the
+          // GoRouter route tree. A raw pushReplacement would produce a
+          // MaterialPageRoute invisible to GoRouter, making context.go()
+          // in the complete screen's back button do nothing.
+          return ScenarioCompleteScreen(
+            scenario: scenario,
+            stats: runner.buildStats(),
           );
         }
 
