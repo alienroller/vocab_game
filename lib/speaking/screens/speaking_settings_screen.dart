@@ -22,6 +22,7 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
   bool _loading = true;
   bool _offlineEnabled = false;
   bool _installed = false;
+  bool _hasPartial = false;
   int _diskBytes = 0;
 
   bool _downloading = false;
@@ -40,11 +41,13 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
     final mgr = OfflineModelManager();
     final enabled = await prefs.offlineEngineEnabled();
     final installed = await mgr.isInstalled(_spec);
-    final bytes = installed ? await mgr.diskUsage(_spec) : 0;
+    final partial = !installed && await mgr.hasPartialInstall(_spec);
+    final bytes = (installed || partial) ? await mgr.diskUsage(_spec) : 0;
     if (!mounted) return;
     setState(() {
       _offlineEnabled = enabled;
       _installed = installed;
+      _hasPartial = partial;
       _diskBytes = bytes;
       _loading = false;
     });
@@ -84,7 +87,8 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
       await _refresh();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _downloadError = e.toString());
+      setState(() => _downloadError = _friendlyError(e));
+      await _refresh();
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
@@ -97,7 +101,31 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
       await prefs.setOfflineEngineEnabled(false);
       await SpeechService().reconfigure();
     }
+    if (!mounted) return;
+    setState(() => _downloadError = null);
     await _refresh();
+  }
+
+  /// Settings-screen-friendly message. Strips presigned URL query strings
+  /// from ClientException so the user sees one line, not a wall of hex.
+  String _friendlyError(Object e) {
+    final raw = e.toString();
+    if (raw.contains('Connection closed while receiving data') ||
+        raw.contains('SocketException') ||
+        raw.contains('HandshakeException')) {
+      return 'Connection dropped during download. Check your internet and try again.';
+    }
+    if (raw.contains('Incomplete download') ||
+        raw.contains('Suspiciously small')) {
+      return 'The download was cut short. Try again — a stable Wi-Fi helps.';
+    }
+    if (raw.contains('Extraction finished but')) {
+      return 'The archive was incomplete. Tap "Clean up" then try downloading again.';
+    }
+    // Drop everything after the first newline and any ?query=… noise.
+    final firstLine = raw.split('\n').first;
+    final uriIdx = firstLine.indexOf(', uri=');
+    return uriIdx >= 0 ? firstLine.substring(0, uriIdx) : firstLine;
   }
 
   @override
@@ -223,6 +251,47 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
               ],
             ),
           ] else ...[
+            if (_hasPartial) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.amberDark.withValues(alpha: 0.12),
+                  border: Border.all(
+                    color: AppTheme.amberDark.withValues(alpha: 0.35),
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded,
+                            size: 18, color: AppTheme.amberDark),
+                        SizedBox(width: 6),
+                        Text(
+                          'Previous install incomplete',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'A partial model is on disk (${_formatBytes(_diskBytes)}). '
+                      'Clean it up before retrying.',
+                      style: const TextStyle(fontSize: 12.5, height: 1.4),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _downloading ? null : _uninstall,
+                      icon: const Icon(Icons.cleaning_services_rounded),
+                      label: const Text('Clean up'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             _stat('Download size', '~${_spec.approxDownloadMB} MB'),
             const SizedBox(height: 12),
             if (_downloading) ...[
@@ -234,7 +303,7 @@ class _SpeakingSettingsScreenState extends State<SpeakingSettingsScreen> {
               ),
             ] else
               FilledButton.icon(
-                onPressed: _download,
+                onPressed: _hasPartial ? null : _download,
                 icon: const Icon(Icons.download_rounded),
                 label: const Text('Download model'),
               ),
