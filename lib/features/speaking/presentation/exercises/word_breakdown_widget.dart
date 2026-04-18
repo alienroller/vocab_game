@@ -44,6 +44,14 @@ class _WordBreakdownWidgetState extends ConsumerState<WordBreakdownWidget> {
     super.dispose();
   }
 
+  /// Strip surrounding punctuation ("please?" → "please", "repeat," →
+  /// "repeat") so chips read as clean words. The phrase itself keeps all
+  /// punctuation for scoring.
+  static String _cleanChipWord(String raw) {
+    return raw.replaceAll(RegExp(r'''^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$''',
+        unicode: true), '');
+  }
+
   Future<void> _playWord(int i, String word) async {
     setState(() => _tapped.add(i));
     final coord = ref.read(falouSpeechCoordinatorProvider);
@@ -109,12 +117,13 @@ class _WordBreakdownWidgetState extends ConsumerState<WordBreakdownWidget> {
           alignment: WrapAlignment.center,
           children: [
             for (var i = 0; i < tokens.length; i++)
-              _WordChip(
-                word: tokens[i],
-                tapped: _tapped.contains(i),
-                isDark: isDark,
-                onTap: () => _playWord(i, tokens[i]),
-              ),
+              if (_cleanChipWord(tokens[i]).isNotEmpty)
+                _WordChip(
+                  word: _cleanChipWord(tokens[i]),
+                  tapped: _tapped.contains(i),
+                  isDark: isDark,
+                  onTap: () => _playWord(i, _cleanChipWord(tokens[i])),
+                ),
           ],
         ),
         const SizedBox(height: 10),
