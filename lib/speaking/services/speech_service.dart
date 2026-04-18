@@ -1,117 +1,107 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
-/// Speech-to-text service wrapper.
+import 'legacy_speech_engine.dart';
+import 'offline_model_manager.dart';
+import 'sherpa_speech_engine.dart';
+import 'speaking_preferences.dart';
+import 'speech_engine.dart';
+
+export 'speech_engine.dart' show RecognitionResult;
+
+/// Unified entry point for speech recognition.
 ///
-/// Handles initialization, listening, transcript normalization,
-/// and confidence-based retry logic.
+/// Picks a concrete [SpeechEngine] based on user preference:
+/// - Offline engine (Sherpa-ONNX Zipformer) when enabled AND model installed
+/// - Legacy engine (`speech_to_text`) otherwise
+///
+/// If an initialization fails mid-session we transparently fall back to the
+/// legacy engine so the user is never stranded.
 class SpeechService {
   static final SpeechService _instance = SpeechService._internal();
   factory SpeechService() => _instance;
   SpeechService._internal();
 
-  final SpeechToText _speech = SpeechToText();
-  bool _isInitialized = false;
-  bool _isListening = false;
+  final LegacySpeechEngine _legacy = LegacySpeechEngine();
+  SherpaSpeechEngine? _sherpa;
+  SpeechEngine? _active;
 
-  bool get isListening => _isListening;
-  bool get isAvailable => _isInitialized;
+  /// The engine currently handling requests (`legacy-stt` or `sherpa-onnx`).
+  /// Returns null before [init] completes.
+  String? get activeEngineId => _active?.id;
 
-  /// Initialize the speech recognition engine.
-  /// Returns true if speech recognition is available.
+  bool get isListening => _active?.isListening ?? false;
+  bool get isAvailable => _active?.isReady ?? false;
+
+  /// Pick the best engine based on saved preferences. Safe to call repeatedly.
   Future<bool> init() async {
-    if (_isInitialized) return true;
+    final prefs = SpeakingPreferences();
+    final wantOffline = await prefs.offlineEngineEnabled();
 
-    try {
-      _isInitialized = await _speech.initialize(
-        onError: _onError,
-        debugLogging: kDebugMode,
-      );
-      return _isInitialized;
-    } catch (e) {
-      debugPrint('Speech init failed: $e');
-      _isInitialized = false;
-      return false;
+    if (wantOffline) {
+      final installed = await OfflineModelManager()
+          .isInstalled(OfflineModelManager.defaultEnglishAsr);
+      if (installed) {
+        _sherpa ??= SherpaSpeechEngine();
+        if (await _sherpa!.init()) {
+          _active = _sherpa;
+          return true;
+        }
+        debugPrint(
+            'SpeechService: Sherpa init failed, falling back to legacy.');
+      } else {
+        debugPrint(
+            'SpeechService: offline model not installed, using legacy.');
+      }
     }
+
+    _active = _legacy;
+    return _legacy.init();
   }
 
-  void _onError(SpeechRecognitionError error) {
-    debugPrint('Speech error: ${error.errorMsg} (${error.permanent})');
-    _isListening = false;
+  /// Force a re-pick of the active engine. Call this after the user toggles
+  /// the offline setting or completes a model download.
+  Future<bool> reconfigure() async {
+    await _active?.cancel();
+    _active = null;
+    return init();
   }
 
-  /// Start listening for speech.
-  ///
-  /// [languageCode] — BCP-47 code like "en-US", "uz-UZ"
-  /// [onResult] — called with each recognition result (interim + final)
-  /// [onSoundLevel] — called with microphone sound level (for waveform)
   Future<void> startListening({
     required String languageCode,
-    required void Function(SpeechRecognitionResult) onResult,
+    required void Function(RecognitionResult) onResult,
     void Function(double)? onSoundLevel,
   }) async {
-    if (!_isInitialized) {
-      final ok = await init();
-      if (!ok) return;
-    }
-
-    if (_isListening) await stopListening();
-
-    _isListening = true;
-    await _speech.listen(
-      onResult: (result) {
-        onResult(result);
-        if (result.finalResult) {
-          _isListening = false;
-        }
-      },
-      onSoundLevelChange: onSoundLevel,
-      localeId: languageCode,
-      listenOptions: SpeechListenOptions(
-        listenMode: ListenMode.dictation,
-        cancelOnError: false,
-        partialResults: true,
-      ),
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
+    if (_active == null) await init();
+    await _active?.startListening(
+      languageCode: languageCode,
+      onResult: onResult,
+      onSoundLevel: onSoundLevel,
     );
   }
 
-  /// Stop listening.
-  Future<void> stopListening() async {
-    if (_isListening) {
-      await _speech.stop();
-      _isListening = false;
-    }
-  }
+  Future<void> stopListening() async => _active?.stopListening();
 
-  /// Cancel listening without processing.
-  Future<void> cancel() async {
-    await _speech.cancel();
-    _isListening = false;
-  }
+  Future<void> cancel() async => _active?.cancel();
 
-  /// Get list of available locales for speech recognition.
-  Future<List<String>> getAvailableLocales() async {
-    if (!_isInitialized) await init();
-    final locales = await _speech.locales();
-    return locales.map((l) => l.localeId).toList();
+  Future<void> dispose() async {
+    await _legacy.dispose();
+    await _sherpa?.dispose();
   }
 
   // ─── Transcript Normalization ──────────────────────────────────────
 
-  /// Normalize a raw transcript before sending to Gemini.
+  /// Normalize a raw transcript before sending to the evaluator.
   /// Strips fillers, punctuation, and normalizes whitespace.
   static String normalize(String raw) {
     return raw
         .toLowerCase()
         .trim()
-        .replaceAll(RegExp(r'\b(um|uh|ah|hmm|er|like|you know)\b',
-            caseSensitive: false), '')
+        .replaceAll(
+            RegExp(r'\b(um|uh|ah|hmm|er|like|you know)\b',
+                caseSensitive: false),
+            '')
         .replaceAll(RegExp(r'[.,!?;:]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
