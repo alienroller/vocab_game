@@ -44,6 +44,9 @@ import 'screens/teacher/teacher_exams_screen.dart';
 import 'screens/teacher/teacher_library_screen.dart';
 import 'screens/teacher/teacher_profile_screen.dart';
 import 'screens/teacher/teacher_student_detail_screen.dart';
+import 'features/speaking/presentation/screens/lesson_runner_screen.dart';
+import 'features/speaking/presentation/screens/scenario_intro_screen.dart';
+import 'features/speaking/presentation/screens/scenario_list_screen.dart';
 import 'speaking/models/speaking_models.dart';
 import 'speaking/screens/speaking_home_screen.dart';
 import 'speaking/screens/speaking_lesson_screen.dart';
@@ -241,14 +244,39 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
 
-        // Tab 2: Speaking
+        // Tab 2: Speaking (Falou-style scenario list)
         StatefulShellBranch(
           navigatorKey: _searchNavKey, // re-used navKey for convenience without breaking global root scope
           routes: [
             GoRoute(
               path: '/speaking',
               pageBuilder: (_, state) =>
-                  _buildPage(const SpeakingHomeScreen(), state),
+                  _buildPage(const ScenarioListScreen(), state),
+              routes: [
+                GoRoute(
+                  path: 'scenario/:id',
+                  pageBuilder: (_, state) {
+                    final id = state.pathParameters['id']!;
+                    return _buildPage(
+                      ScenarioIntroScreen(scenarioId: id),
+                      state,
+                    );
+                  },
+                  routes: [
+                    GoRoute(
+                      path: 'run',
+                      parentNavigatorKey: _rootNavigatorKey,
+                      pageBuilder: (_, state) {
+                        final id = state.pathParameters['id']!;
+                        return _buildPage(
+                          LessonRunnerScreen(scenarioId: id),
+                          state,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -344,6 +372,12 @@ final GoRouter appRouter = GoRouter(
           _buildPage(const SearchScreen(), state),
     ),
 
+    GoRoute(
+      path: '/speaking-legacy',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const SpeakingHomeScreen(), state),
+    ),
     GoRoute(
       path: '/speaking/lesson',
       parentNavigatorKey: _rootNavigatorKey,
