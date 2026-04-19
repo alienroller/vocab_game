@@ -47,8 +47,43 @@ serve(async (req) => {
       return new Response('not in this class', { status: 403 });
     }
 
-    // Upsert the participant row. If it already exists as 'invited' or 'joined',
-    // flip to 'joined' and stamp joined_at. Idempotent.
+    // Look up any existing participant row first, so we can (a) preserve
+    // shuffle_seed on rejoin (resume must use the same question order), and
+    // (b) refuse to revive terminal states (completed / absent / timed_out).
+    const { data: existing } = await admin
+      .from('exam_participants')
+      .select('status, shuffle_seed')
+      .eq('session_id', sessionId)
+      .eq('student_id', userId)
+      .maybeSingle();
+
+    const terminal = existing &&
+      (existing.status === 'completed' ||
+       existing.status === 'absent' ||
+       existing.status === 'timed_out');
+
+    if (terminal) {
+      // Student already finished (or was marked absent/timed-out). Do NOT
+      // overwrite their status or shuffle_seed — the client will route them
+      // to the results screen based on this response.
+      return new Response(JSON.stringify({
+        status: existing.status,
+        sessionStatus: session.status,
+        startedAt: session.started_at,
+        totalSeconds: session.total_seconds,
+        perQuestionSeconds: session.per_question_seconds,
+        alreadyFinished: true,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    }
+
+    // Preserve shuffle_seed for existing rows (keeps resume order stable);
+    // generate a fresh seed only for brand-new participants.
+    const shuffleSeed = existing?.shuffle_seed ??
+      Math.floor(Math.random() * 2_147_483_647);
+
     const { error: upErr } = await admin
       .from('exam_participants')
       .upsert({
@@ -56,7 +91,7 @@ serve(async (req) => {
         student_id: userId,
         status: session.status === 'in_progress' ? 'in_progress' : 'joined',
         joined_at: new Date().toISOString(),
-        shuffle_seed: Math.floor(Math.random() * 2_147_483_647),
+        shuffle_seed: shuffleSeed,
       }, { onConflict: 'session_id,student_id', ignoreDuplicates: false });
 
     if (upErr) {

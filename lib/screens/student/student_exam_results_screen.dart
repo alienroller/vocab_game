@@ -75,20 +75,26 @@ class _StudentExamResultsScreenState extends State<StudentExamResultsScreen> {
     final pct = widget.totalQuestions > 0
         ? (widget.correctCount / widget.totalQuestions * 100)
         : 0;
-    final grade = pct >= 90
+    // Gentler vocab-learning bands — a student who knows 15 of 27 words is
+    // still making real progress, not failing. Compared to the traditional
+    // US scale (60 = D, <60 = F), these thresholds are shifted down so that
+    // mid-range scores read as "keep practicing" rather than "fail".
+    final grade = pct >= 85
         ? 'A'
-        : pct >= 80
+        : pct >= 70
             ? 'B'
-            : pct >= 70
+            : pct >= 55
                 ? 'C'
-                : pct >= 60
+                : pct >= 40
                     ? 'D'
                     : 'F';
     final gradeColor = pct >= 70
         ? Colors.green
-        : pct >= 60
+        : pct >= 55
             ? Colors.amber
-            : Colors.redAccent;
+            : pct >= 40
+                ? Colors.orange
+                : Colors.redAccent;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final unanswered = widget.totalQuestions - widget.totalCount;
 

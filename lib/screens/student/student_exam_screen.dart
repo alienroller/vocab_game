@@ -113,6 +113,29 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
         return;
       }
 
+      // Terminal-state guard: if the student has already finished (or been
+      // marked absent / timed_out), route straight to the results screen and
+      // never render the exam runner. This is the client-side half of the
+      // "finished is terminal" invariant — the server half lives in the
+      // join-exam Edge Function.
+      final partStatus = participation['status'] as String?;
+      final isTerminal = partStatus == 'completed' ||
+          partStatus == 'absent' ||
+          partStatus == 'timed_out';
+      if (isTerminal && mounted) {
+        final correct = (participation['correct_count'] as num?)?.toInt() ?? 0;
+        final total = (participation['total_count'] as num?)?.toInt() ?? 0;
+        context.pushReplacement(
+          '/student/exam/${widget.sessionId}/results',
+          extra: <String, dynamic>{
+            'correctCount': correct,
+            'totalCount': total,
+            'totalQuestions': questions.length,
+          },
+        );
+        return;
+      }
+
       _perQuestionSeconds = session.perQuestionSeconds;
       _totalSeconds = session.totalSeconds;
       _sessionStartedAt = session.startedAt;

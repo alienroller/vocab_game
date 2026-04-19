@@ -31,18 +31,41 @@ class StudentExamLobbyState {
   final bool loading;
   final String? error;
 
+  /// Server-side status of THIS student's participant row. Null until the
+  /// first fetch completes. Used by the lobby screen to route a student who
+  /// already finished (or was marked absent / timed_out) straight to the
+  /// results screen instead of re-entering the exam runner.
+  final String? participantStatus;
+
+  /// Score snapshot from the participant row (populated once the student has
+  /// any answers recorded). Passed through to the results screen when routing
+  /// a re-joining finisher so the score circle can render immediately.
+  final int? correctCount;
+  final int? totalCount;
+
   const StudentExamLobbyState({
     this.session,
     this.joined = false,
     this.loading = false,
     this.error,
+    this.participantStatus,
+    this.correctCount,
+    this.totalCount,
   });
+
+  bool get participantIsTerminal =>
+      participantStatus == 'completed' ||
+      participantStatus == 'absent' ||
+      participantStatus == 'timed_out';
 
   StudentExamLobbyState copyWith({
     ExamSession? session,
     bool? joined,
     bool? loading,
     String? error,
+    String? participantStatus,
+    int? correctCount,
+    int? totalCount,
     bool clearError = false,
   }) =>
       StudentExamLobbyState(
@@ -50,6 +73,9 @@ class StudentExamLobbyState {
         joined: joined ?? this.joined,
         loading: loading ?? this.loading,
         error: clearError ? null : (error ?? this.error),
+        participantStatus: participantStatus ?? this.participantStatus,
+        correctCount: correctCount ?? this.correctCount,
+        totalCount: totalCount ?? this.totalCount,
       );
 }
 
@@ -65,9 +91,24 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
 
   Future<void> _init() async {
     try {
-      final session = await ExamService.fetchSession(_sessionId);
+      // Fetch session AND participation in parallel so we know up-front
+      // whether this student has already finished — that dictates whether
+      // the lobby should route them to /results instead of /take.
+      final sessionFuture = ExamService.fetchSession(_sessionId);
+      final partFuture = ExamService.fetchMyParticipation(_sessionId);
+
+      final session = await sessionFuture;
+      final participation = await partFuture;
+
       if (!mounted) return;
-      state = state.copyWith(session: session, loading: false, clearError: true);
+      state = state.copyWith(
+        session: session,
+        loading: false,
+        clearError: true,
+        participantStatus: participation?['status'] as String?,
+        correctCount: (participation?['correct_count'] as num?)?.toInt(),
+        totalCount: (participation?['total_count'] as num?)?.toInt(),
+      );
     } catch (e, s) {
       debugPrint('StudentExamLobby init failed: $e\n$s');
       if (!mounted) return;
@@ -82,12 +123,22 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
       if (!mounted) return;
       try {
-        final fresh = await ExamService.fetchSession(_sessionId);
+        final freshSessionFuture = ExamService.fetchSession(_sessionId);
+        final freshPartFuture = ExamService.fetchMyParticipation(_sessionId);
+        final fresh = await freshSessionFuture;
+        final freshPart = await freshPartFuture;
         if (!mounted || fresh == null) return;
+        final freshStatus = freshPart?['status'] as String?;
         // Only update if something actually changed (avoid needless rebuilds).
         if (fresh.status != state.session?.status ||
-            fresh.startedAt != state.session?.startedAt) {
-          state = state.copyWith(session: fresh);
+            fresh.startedAt != state.session?.startedAt ||
+            freshStatus != state.participantStatus) {
+          state = state.copyWith(
+            session: fresh,
+            participantStatus: freshStatus,
+            correctCount: (freshPart?['correct_count'] as num?)?.toInt(),
+            totalCount: (freshPart?['total_count'] as num?)?.toInt(),
+          );
         }
       } catch (_) {/* swallow — next tick retries */}
     });
@@ -101,9 +152,18 @@ class StudentExamLobbyNotifier extends StateNotifier<StudentExamLobbyState> {
   Future<void> joinExam() async {
     state = state.copyWith(loading: true, clearError: true);
     try {
-      await ExamService.joinExam(_sessionId);
+      final resp = await ExamService.joinExam(_sessionId);
       if (!mounted) return;
-      state = state.copyWith(joined: true, loading: false);
+      // If the server recognised this student as already-finished, reflect
+      // that in state so the lobby screen routes to results.
+      final alreadyFinished = resp['alreadyFinished'] == true;
+      state = state.copyWith(
+        joined: true,
+        loading: false,
+        participantStatus: alreadyFinished
+            ? (resp['status'] as String?)
+            : state.participantStatus,
+      );
     } catch (e, s) {
       debugPrint('join-exam failed: $e\n$s');
       if (!mounted) return;

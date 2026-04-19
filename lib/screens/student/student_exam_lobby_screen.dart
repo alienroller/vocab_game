@@ -17,9 +17,27 @@ class StudentExamLobbyScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final session = lobby.session;
 
-    // If the session transitions to in_progress after the student joined,
-    // navigate to the exam screen.
-    if (session != null && session.isInProgress && lobby.joined) {
+    // If the student already finished this exam (finished / absent / timed_out
+    // are all terminal), send them straight to results — never back into the
+    // runner. This covers the "rejoin after submit" case: the server preserves
+    // their terminal status (join-exam guards against revival), and we honour
+    // that here on the client.
+    if (lobby.participantIsTerminal) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          context.pushReplacement(
+            '/student/exam/$sessionId/results',
+            extra: <String, dynamic>{
+              'correctCount': lobby.correctCount ?? 0,
+              'totalCount': lobby.totalCount ?? 0,
+              'totalQuestions': session?.questionCount ?? 0,
+            },
+          );
+        }
+      });
+    } else if (session != null && session.isInProgress && lobby.joined) {
+      // If the session transitions to in_progress after the student joined,
+      // navigate to the exam screen.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) {
           context.pushReplacement('/student/exam/$sessionId/take');
@@ -47,6 +65,9 @@ class StudentExamLobbyScreen extends ConsumerWidget {
   ) {
     final session = lobby.session;
     if (session == null || session.isFinished) return null;
+    // Finished students are being redirected to /results — hide the bottom bar
+    // so the Join button doesn't flash in the interim frame.
+    if (lobby.participantIsTerminal) return null;
 
     if (!lobby.joined) {
       return SafeArea(

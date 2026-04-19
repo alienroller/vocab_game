@@ -192,11 +192,7 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gradeColor = classPct >= 70
-        ? Colors.green
-        : classPct >= 60
-            ? Colors.amber
-            : Colors.redAccent;
+    final gradeColor = _gradeColor(classPct);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -279,11 +275,7 @@ class _StudentScoreTile extends StatelessWidget {
     final Color statusColor;
     final String statusText;
     if (p.status == 'completed') {
-      statusColor = pct >= 70
-          ? Colors.green
-          : pct >= 60
-              ? Colors.amber
-              : Colors.redAccent;
+      statusColor = _gradeColor(pct.toDouble());
       statusText = '$correct/$totalQ ($pct%)';
     } else if (p.status == 'absent') {
       statusColor = Colors.grey;
@@ -352,6 +344,17 @@ class _StudentScoreTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// Maps a percentage score onto a color band suitable for a vocab-learning
+// app. Bands intentionally sit below the traditional US grading scale so that
+// mid-range scores (e.g. 56 %) read as "keep practicing" (amber) rather than
+// "failing" (red).
+Color _gradeColor(double pct) {
+  if (pct >= 70) return Colors.green;
+  if (pct >= 55) return Colors.amber;
+  if (pct >= 40) return Colors.orange;
+  return Colors.redAccent;
 }
 
 // ─── Question accuracy tile ──────────────────────────────────────────────────
