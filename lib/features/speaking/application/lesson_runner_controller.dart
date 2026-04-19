@@ -146,8 +146,7 @@ class LessonRunnerController extends ChangeNotifier {
 
   /// Score a transcription against the current exercise's target phrase.
   /// Returns the evaluated [SpeechResult]; widgets then decide to auto-advance.
-  SpeechResult submitSpeech(String transcript,
-      {double threshold = PronunciationScorer.defaultThreshold}) {
+  SpeechResult submitSpeech(String transcript) {
     final target = current.phrase.l2Text;
     if (transcript.trim().isEmpty) {
       final empty = SpeechResult.empty();
@@ -160,7 +159,7 @@ class LessonRunnerController extends ChangeNotifier {
     }
 
     final score = _scorer.score(transcript, target);
-    final passed = score >= threshold;
+    final passed = _scorer.passes(transcript, target);
     final result = SpeechResult(
       transcript: transcript,
       score: score,

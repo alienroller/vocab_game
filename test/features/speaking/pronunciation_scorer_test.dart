@@ -17,22 +17,6 @@ void main() {
       expect(scorer.score('Hello, world!', 'hello world'), closeTo(1.0, 1e-9));
     });
 
-    test('apostrophes are preserved (contractions matter)', () {
-      // "im" vs "i'm" should differ because the normalizer keeps the apostrophe.
-      expect(scorer.score("i'm fine", "im fine") < 1.0, isTrue);
-    });
-
-    test('single-char typo still passes threshold', () {
-      final s = scorer.score('i wood like a coffee', 'i would like a coffee');
-      expect(s, greaterThan(PronunciationScorer.defaultThreshold));
-    });
-
-    test('completely different text fails threshold', () {
-      final s = scorer.score('the cat sat on the mat',
-          'would you like another cup of coffee please');
-      expect(s, lessThan(PronunciationScorer.defaultThreshold));
-    });
-
     test('empty transcription scores 0.0', () {
       expect(scorer.score('', 'hello world'), 0.0);
     });
@@ -40,22 +24,72 @@ void main() {
     test('empty target scores 0.0', () {
       expect(scorer.score('hello', ''), 0.0);
     });
+  });
 
-    test('missing filler word still passes', () {
-      // Drops "please" — Jaccard penalty is small, character ratio OK.
-      final s = scorer.score('i would like a coffee', 'i would like a coffee please');
-      expect(s, greaterThan(PronunciationScorer.defaultThreshold));
+  group('PronunciationScorer.passes', () {
+    test('exact match passes', () {
+      expect(scorer.passes('what is your name', 'what is your name'), isTrue);
     });
 
-    test('word order swap partially penalized, still passable', () {
-      final s = scorer.score('coffee a like would i', 'i would like a coffee');
-      // Jaccard is 1.0 (same words), Levenshtein is poor — blend should still pass.
-      expect(s, greaterThan(0.5));
+    test('single-char STT typo on a longer word still passes', () {
+      // 1-edit in an 8-letter word → ratio 0.875, within the fuzzy-match bar.
+      // Short-word typos intentionally don't fuzzy-match (wrong pronunciation
+      // in a learning app should not silently count as correct).
+      expect(scorer.passes('see you tomarrow', 'see you tomorrow'), isTrue);
     });
 
-    test('passes() convenience matches default threshold', () {
-      expect(scorer.passes('hello world', 'hello world'), isTrue);
+    test('dropping one small word still passes (recall floor)', () {
+      // STT sometimes drops an auxiliary — recall drops to 0.75 which is the
+      // lower bound we accept.
+      expect(scorer.passes('what your name', 'what is your name'), isTrue);
+    });
+
+    test('adding an extra word fails (precision gate)', () {
+      // The "fucking" case from the bug report: recall 1.0, precision 0.80 —
+      // must not pass.
+      expect(
+        scorer.passes('what is your fucking name', 'what is your name'),
+        isFalse,
+      );
+    });
+
+    test('filler words (uh/um) are stripped, do not hurt precision', () {
+      expect(
+        scorer.passes('what is uh your um name', 'what is your name'),
+        isTrue,
+      );
+    });
+
+    test('trailing extra phrase fails', () {
+      expect(
+        scorer.passes(
+            'what is your name please tell me', 'what is your name'),
+        isFalse,
+      );
+    });
+
+    test('word-order swap fails (sequence aware)', () {
+      // A bag-of-words metric would pass this; sequence alignment rejects it.
+      expect(
+        scorer.passes('coffee a like would i', 'i would like a coffee'),
+        isFalse,
+      );
+    });
+
+    test('completely different text fails', () {
+      expect(
+        scorer.passes('the cat sat on the mat',
+            'would you like another cup of coffee please'),
+        isFalse,
+      );
+    });
+
+    test('empty transcription fails', () {
       expect(scorer.passes('', 'hello world'), isFalse);
+    });
+
+    test('empty target fails', () {
+      expect(scorer.passes('hello', ''), isFalse);
     });
   });
 }
