@@ -39,16 +39,16 @@ class AppTheme {
 
   /// Main background gradient (dark)
   static const darkBgGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
     colors: [_darkBg, Color(0xFF141733), _darkSurface],
     stops: [0.0, 0.5, 1.0],
   );
 
   /// Main background gradient (light)
   static const lightBgGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
     colors: [Color(0xFFF8F7FF), Color(0xFFF2F0FB), _lightBg],
     stops: [0.0, 0.5, 1.0],
   );
