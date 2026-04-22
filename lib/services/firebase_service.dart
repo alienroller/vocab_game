@@ -8,7 +8,7 @@ import 'package:vocab_game/services/key_constants.dart';
 import 'package:vocab_game/services/storage_provider.dart';
 
 class FirebaseService {
-  static final _topic = 'Vocab Game News';
+  static const _topic = 'Vocab Game News';
   static final _supabase = Supabase.instance.client;
 
   static void initFirebase() {
@@ -105,7 +105,7 @@ class FirebaseService {
 
   static Future<void> _initializeFCMToken() async {
     try {
-      String? token = await FirebaseMessaging.instance.getToken();
+      final token = await FirebaseMessaging.instance.getToken();
 
       if (token != null) {
         await LocalStorageProvider.cache.setString(KeyConstants.fcmToken, token);

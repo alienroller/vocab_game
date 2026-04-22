@@ -1,6 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:path/path.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:vocab_game/config/environment_constants.dart';
 import 'package:vocab_game/theme/app_theme.dart';
 
 class UpdateScreen extends StatefulWidget {
@@ -43,7 +45,10 @@ class _UpdateScreenState extends State<UpdateScreen> {
                 ),
                 child: FilledButton(
                   onPressed: () {
-                    final url = 'https://play.google.com/store/apps/details?id=com.vocabgame.vocab_game';
+                    final url = switch (Platform.isAndroid) {
+                      true => EnvironmentConstants.playStoreUrl,
+                      false => EnvironmentConstants.appStoreUrl,
+                    };
 
                     launchUrlString(url, mode: LaunchMode.externalApplication);
                   },
