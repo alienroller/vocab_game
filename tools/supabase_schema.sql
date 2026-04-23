@@ -102,10 +102,11 @@ CREATE TABLE duels (
   opponent_score integer DEFAULT 0,
   challenger_xp_gain integer DEFAULT 0,
   opponent_xp_gain integer DEFAULT 0,
-  status text DEFAULT 'pending' CHECK (status IN ('pending','active','finished','declined')),
+  status text DEFAULT 'pending' CHECK (status IN ('pending','active','settling','finished','declined')),
   word_set jsonb NOT NULL,
   winner_id uuid REFERENCES profiles(id),
   started_at timestamptz,
+  settling_at timestamptz,
   finished_at timestamptz,
   created_at timestamptz DEFAULT now() NOT NULL
 );
