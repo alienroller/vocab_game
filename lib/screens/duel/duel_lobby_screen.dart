@@ -7,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/duel_service.dart';
+import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 
 /// Duel lobby — two tabs: Challenge classmates + View incoming invites.
@@ -47,7 +48,9 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   @override
   void dispose() {
     _pollTimer?.cancel();
-    _pendingDuelsChannel?.unsubscribe();
+    if (_pendingDuelsChannel != null) {
+      Supabase.instance.client.removeChannel(_pendingDuelsChannel!);
+    }
     _tabController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -64,26 +67,46 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final userId = _userId;
     if (userId == null) return;
 
-    _pendingDuelsChannel = Supabase.instance.client.channel('duel_lobby_$userId');
-    _pendingDuelsChannel!
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'duels',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'challenger_id',
-            value: userId,
-          ),
-          callback: (payload) {
-            if (!mounted || _navigatingToGame) return;
-            final newData = payload.newRecord;
-            if (newData['status'] == 'active') {
-              _navigateToGame(newData);
-            }
-          },
-        )
-        .subscribe();
+    _pendingDuelsChannel = Supabase.instance.client.channel('duel_lobby_$userId')
+      // Challenger side: fires when my sent challenge is accepted (status → 'active').
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'duels',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'challenger_id',
+          value: userId,
+        ),
+        callback: (payload) {
+          if (!mounted || _navigatingToGame) return;
+          final newData = payload.newRecord;
+          if (newData['status'] == 'active') {
+            _navigateToGame(newData);
+          }
+        },
+      )
+      // Opponent side: fires when someone creates a new challenge targeting me.
+      // Refreshes the invites list and fires a local notification immediately —
+      // previously this was only discovered by the 10-second poll.
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'duels',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'opponent_id',
+          value: userId,
+        ),
+        callback: (payload) {
+          if (!mounted) return;
+          _loadData();
+          final challenger =
+              payload.newRecord['challenger_username'] as String? ?? 'Someone';
+          NotificationService.notifyDuelChallenge(challenger);
+        },
+      )
+      ..subscribe();
   }
 
   void _navigateToGame(Map<String, dynamic> duelData) {
