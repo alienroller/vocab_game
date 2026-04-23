@@ -83,6 +83,7 @@ class _UsernameScreenState extends State<UsernameScreen> {
 
     return Scaffold(
       extendBodyBehindAppBar: true,
+      resizeToAvoidBottomInset: false,
       body: Container(
         decoration: BoxDecoration(
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
