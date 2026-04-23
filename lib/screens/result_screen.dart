@@ -8,7 +8,6 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/vocab.dart';
 import '../providers/profile_provider.dart';
-import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 
 /// Result screen with animated score ring, XP display, and confetti-like

@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../providers/profile_provider.dart';
-import '../../services/notification_service.dart';
 import '../../services/account_recovery_service.dart';
 import '../../theme/app_theme.dart';
 
