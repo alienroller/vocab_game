@@ -30,7 +30,6 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   bool _loading = true;
   Timer? _pollTimer;
   RealtimeChannel? _pendingDuelsChannel;
-  bool _navigatingToGame = false;
 
   String? get _classCode => Hive.box('userProfile').get('classCode') as String?;
   String? get _userId => Hive.box('userProfile').get('id') as String?;
@@ -79,7 +78,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
           value: userId,
         ),
         callback: (payload) {
-          if (!mounted || _navigatingToGame) return;
+          if (!mounted) return;
           final newData = payload.newRecord;
           if (newData['status'] == 'active') {
             _navigateToGame(newData);
@@ -110,21 +109,26 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   }
 
   void _navigateToGame(Map<String, dynamic> duelData) {
-    if (_navigatingToGame) return;
-    _navigatingToGame = true;
-    
+    if (!mounted) return;
+
+    // Guard against double-navigation by checking the current route directly.
+    // This replaces a mutable flag that got stuck at true because the
+    // push().then() callback doesn't fire reliably after the duel ends via
+    // pushReplacement(results) → go('/home'), which wipes the root stack
+    // without popping routes normally.
+    final currentRoute = GoRouterState.of(context).uri.toString();
+    if (currentRoute.startsWith('/duels/game') ||
+        currentRoute.startsWith('/duels/results')) {
+      return;
+    }
+
     final words = List<Map<String, dynamic>>.from(
         (duelData['word_set'] as List).map((w) => Map<String, dynamic>.from(w)));
-        
+
     context.push('/duels/game', extra: {
       'duelId': duelData['id'] as String,
       'words': words,
       'isChallenger': true,
-    }).then((_) {
-      if (mounted) {
-        _navigatingToGame = false;
-        _loadData();
-      }
     });
   }
 
@@ -153,7 +157,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
           .eq('challenger_id', userId)
           .eq('status', 'active');
           
-      if (activeData.isNotEmpty && mounted && !_navigatingToGame) {
+      if (activeData.isNotEmpty && mounted) {
          _navigateToGame(activeData.first);
          return; // Skip loading lobby since we are entering a game
       }
