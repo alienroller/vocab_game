@@ -33,7 +33,7 @@ void main() async {
   // Must be opened after StorageService.init so the cipher helper works.
   await StorageService.openSecurityBox();
 
-  await NotificationService.instance.initialize();
+  // await NotificationService.instance.initialize();
 
   await LocalStorageProvider.init();
 
