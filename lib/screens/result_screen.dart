@@ -93,14 +93,18 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
 
   Future<void> _syncProfile() async {
     if (_synced) return;
+
     _synced = true;
+
     final notifier = ref.read(profileProvider.notifier);
+
     await notifier.recordGameSession(
       xpGained: widget.xpGained,
       totalQuestions: widget.total,
       correctAnswers: widget.score,
     );
-    await NotificationService.cancelStreakWarning();
+
+    // await NotificationService.cancelStreakWarning(); //TODO
   }
 
   @override

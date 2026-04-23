@@ -88,7 +88,7 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
             .createProfile(id: userId, username: widget.username, isTeacher: widget.isTeacher);
 
         // Request notification permission (iOS + Android 13+)
-        await NotificationService.requestPermission();
+        // await NotificationService.requestPermission(); TODO
 
         if (!mounted) return;
 

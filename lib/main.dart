@@ -1,14 +1,10 @@
 import 'dart:async';
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:vocab_game/config/environment_constants.dart';
-import 'package:vocab_game/firebase_options.dart';
 import 'package:vocab_game/services/storage_provider.dart';
 import 'package:vocab_game/services/version_service.dart';
 
@@ -37,7 +33,7 @@ void main() async {
   // Must be opened after StorageService.init so the cipher helper works.
   await StorageService.openSecurityBox();
 
-  tz.initializeTimeZones();
+  await NotificationService.instance.initialize();
 
   await LocalStorageProvider.init();
 
@@ -45,19 +41,11 @@ void main() async {
   EnvironmentConstants.validate();
 
   // Initialize Supabase
-  await Supabase.initialize(
-      url: EnvironmentConstants.url, anonKey: EnvironmentConstants.anonKey);
+  await Supabase.initialize(url: EnvironmentConstants.url, anonKey: EnvironmentConstants.anonKey);
 
-  if (!kIsWeb) {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  }
-
-  // Initialize local notifications (streak warnings, duel alerts)
-  await NotificationService.initialize();
-
-  // Request notification permission (safe to call on every start—OS won't
-  // re-prompt if already granted. Covers the recovered-account case.)
-  await NotificationService.requestPermission();
+  // // Request notification permission (safe to call on every start—OS won't
+  // // re-prompt if already granted. Covers the recovered-account case.)
+  // await NotificationService.requestPermission(); TODO
 
   // Drain any pending offline syncs
   await SyncService.drainSyncQueue();
@@ -86,19 +74,19 @@ Future<void> _checkStreakOnOpen() async {
   if (id == null) return; // Not onboarded yet
 
   // Build a profile to check streak
-  final profile = UserProfile()
-    ..id = id
-    ..username = profileBox.get('username', defaultValue: '') as String
-    ..xp = profileBox.get('xp', defaultValue: 0) as int
-    ..level = profileBox.get('level', defaultValue: 1) as int
-    ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
-    ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
-    ..classCode = profileBox.get('classCode') as String?
-    ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
-    ..totalWordsAnswered =
-        profileBox.get('totalWordsAnswered', defaultValue: 0) as int
-    ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
-    ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
+  final profile =
+      UserProfile()
+        ..id = id
+        ..username = profileBox.get('username', defaultValue: '') as String
+        ..xp = profileBox.get('xp', defaultValue: 0) as int
+        ..level = profileBox.get('level', defaultValue: 1) as int
+        ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
+        ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
+        ..classCode = profileBox.get('classCode') as String?
+        ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
+        ..totalWordsAnswered = profileBox.get('totalWordsAnswered', defaultValue: 0) as int
+        ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
+        ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
 
   // Check if streak was broken while app was closed
   StreakService.checkStreakOnAppOpen(profile);
@@ -109,11 +97,11 @@ Future<void> _checkStreakOnOpen() async {
   // Reset weekXp if a new ISO week has started
   await _resetWeekXpIfNeeded(profileBox, profile);
 
-  // Show streak warning notification if they haven't played today
-  final today = AppDateUtils.ymd(DateTime.now());
-  if (profile.lastPlayedDate != today && profile.streakDays >= 2) {
-    await NotificationService.showStreakWarning(profile.streakDays);
-  }
+  // // Show streak warning notification if they haven't played today
+  // final today = AppDateUtils.ymd(DateTime.now());
+  // if (profile.lastPlayedDate != today && profile.streakDays >= 2) {
+  //   await NotificationService.showStreakWarning(profile.streakDays);
+  // } TODO
 
   // Subscribe to incoming duel challenges — fire and forget is OK here
   // because the subscribe call itself is async but we don't need the result.
@@ -137,9 +125,11 @@ Future<void> _resetWeekXpIfNeeded(Box profileBox, UserProfile profile) async {
   // Sync the reset to Supabase so the weekly leaderboard is accurate.
   // We intentionally don't await — the rest of app startup shouldn't block on
   // the network — but errors are logged inside syncProfile().
-  unawaited(SyncService.syncProfile(profile).catchError((Object e, _) {
-    debugPrint('Week-reset sync failed (will retry via queue): $e');
-  }));
+  unawaited(
+    SyncService.syncProfile(profile).catchError((Object e, _) {
+      debugPrint('Week-reset sync failed (will retry via queue): $e');
+    }),
+  );
 }
 
 /// Subscribes to incoming duel challenges. Stores the channel reference so
@@ -166,16 +156,15 @@ Future<void> _subscribeToDuelChallenges(String myId) async {
             value: myId,
           ),
           callback: (payload) {
-            final challenger =
-                payload.newRecord['challenger_username'] as String? ?? 'Someone';
-            NotificationService.notifyDuelChallenge(challenger);
+            final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
+            // NotificationService.notifyDuelChallenge(challenger); TODO
           },
         )
         .subscribe((status, [error]) {
-      if (error != null) {
-        debugPrint('Duel channel subscribe error: $error');
-      }
-    });
+          if (error != null) {
+            debugPrint('Duel channel subscribe error: $error');
+          }
+        });
     _duelChallengeChannel = channel;
   } catch (e) {
     debugPrint('Failed to subscribe to duel channel: $e');
