@@ -84,8 +84,13 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
           });
         },
       )
-      // POSTGRES CHANGES: only used for status transitions (finished/settling).
-      // Score updates no longer come through this path — they come via Broadcast.
+      // POSTGRES CHANGES: authoritative DB state. Carries two jobs:
+      //   1. Status transition to 'finished' → end the duel.
+      //   2. Reliability net for scores — if a broadcast was dropped (network
+      //      blip, late subscribe), the DB write lands here ~150ms later so
+      //      the opponent's score still syncs.
+      // When the broadcast arrived first, the DB value matches the local
+      // value and the `!=` guard makes this a no-op (no redundant setState).
       ..onPostgresChanges(
         event: PostgresChangeEvent.update,
         schema: 'public',
@@ -97,7 +102,16 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
         ),
         callback: (payload) {
           if (!mounted) return;
-          final status = payload.newRecord['status'] as String?;
+          final row = payload.newRecord;
+
+          final opponentField =
+              widget.isChallenger ? 'opponent_score' : 'challenger_score';
+          final dbScore = (row[opponentField] as num?)?.toInt();
+          if (dbScore != null && dbScore != _opponentScore) {
+            setState(() => _opponentScore = dbScore);
+          }
+
+          final status = row['status'] as String?;
           if (status == 'finished' && !_isFinishedLocally) {
             _forceEndDuel();
           }
