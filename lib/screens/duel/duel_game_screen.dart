@@ -69,37 +69,41 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
   }
 
   void _subscribeToScores() {
-    _channel = Supabase.instance.client.channel('duel-${widget.duelId}');
-    _channel!
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'duels',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'id',
-            value: widget.duelId,
-          ),
-          callback: (payload) {
-            final newData = payload.newRecord;
-            if (mounted) {
-              if (newData['status'] == 'finished' && !_isFinishedLocally) {
-                _forceEndDuel();
-              } else {
-                setState(() {
-                  if (widget.isChallenger) {
-                    _opponentScore =
-                        (newData['opponent_score'] as int?) ?? _opponentScore;
-                  } else {
-                    _opponentScore =
-                        (newData['challenger_score'] as int?) ?? _opponentScore;
-                  }
-                });
-              }
-            }
-          },
-        )
-        .subscribe();
+    _channel = Supabase.instance.client.channel('duel:${widget.duelId}')
+      // BROADCAST: opponent's live score arrives here within ~50ms of each answer.
+      // Sender echoes back too — ignore messages from self.
+      ..onBroadcast(
+        event: 'score_update',
+        callback: (payload) {
+          if (!mounted) return;
+          final senderId = payload['userId'] as String?;
+          if (senderId == _myId) return; // ignore own echo
+          setState(() {
+            _opponentScore =
+                (payload['score'] as num?)?.toInt() ?? _opponentScore;
+          });
+        },
+      )
+      // POSTGRES CHANGES: only used for status transitions (finished/settling).
+      // Score updates no longer come through this path — they come via Broadcast.
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'duels',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'id',
+          value: widget.duelId,
+        ),
+        callback: (payload) {
+          if (!mounted) return;
+          final status = payload.newRecord['status'] as String?;
+          if (status == 'finished' && !_isFinishedLocally) {
+            _forceEndDuel();
+          }
+        },
+      )
+      ..subscribe();
   }
 
   void _generateOptions() {
@@ -139,7 +143,13 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
       }
     });
 
-    // Update score in real-time
+    // Broadcast score to opponent immediately (<50ms delivery).
+    _channel?.sendBroadcastMessage(
+      event: 'score_update',
+      payload: {'userId': _myId, 'score': _myScore},
+    );
+
+    // Persist score to DB (source of truth for final results).
     DuelService.updateScore(
       duelId: widget.duelId,
       playerId: _myId,
@@ -164,10 +174,10 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
   Future<void> _forceEndDuel() async {
     setState(() => _isFinishedLocally = true);
 
-    // Wait slightly to let the remote update settle
-    // because whoever marked it 'finished' also sets the winner_id
-    // and calculates XP.
-    await Future.delayed(const Duration(milliseconds: 800));
+    // status == 'finished' means winner_id and XP are already committed.
+    // A small delay guards against the edge case where the finishing device
+    // writes 'finished' a fraction before the XP columns land.
+    await Future.delayed(const Duration(milliseconds: 400));
 
     final duelData = await Supabase.instance.client
         .from('duels')
@@ -189,9 +199,14 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
         ? duelData['opponent_username'] as String? ?? '???'
         : duelData['challenger_username'] as String? ?? '???';
 
+    // Use DB scores as source of truth — broadcast may have missed a packet.
+    final opponentDbScore = widget.isChallenger
+        ? (duelData['opponent_score'] as int?) ?? _opponentScore
+        : (duelData['challenger_score'] as int?) ?? _opponentScore;
+
     context.pushReplacement('/duels/results', extra: {
       'myScore': _myScore,
-      'opponentScore': _opponentScore,
+      'opponentScore': opponentDbScore,
       'totalWords': widget.words.length,
       'myXpGain': myXpGain,
       'didWin': didWin,
@@ -204,27 +219,15 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
     if (_isFinishedLocally) return;
     setState(() => _isFinishedLocally = true);
 
-    final challengerId = widget.isChallenger
-        ? _myId
-        : (await Supabase.instance.client
-                .from('duels')
-                .select('challenger_id')
-                .eq('id', widget.duelId)
-                .single())['challenger_id'] as String;
-    final opponentId = widget.isChallenger
-        ? (await Supabase.instance.client
-                .from('duels')
-                .select('opponent_id')
-                .eq('id', widget.duelId)
-                .single())['opponent_id'] as String
-        : _myId;
-
-    // Get the opponent's username from the duel record
+    // Fetch both IDs and usernames in a single query.
     final duelData = await Supabase.instance.client
         .from('duels')
-        .select('challenger_username, opponent_username')
+        .select('challenger_id, opponent_id, challenger_username, opponent_username')
         .eq('id', widget.duelId)
         .single();
+
+    final challengerId = duelData['challenger_id'] as String;
+    final opponentId = duelData['opponent_id'] as String;
     final opponentName = widget.isChallenger
         ? duelData['opponent_username'] as String? ?? '???'
         : duelData['challenger_username'] as String? ?? '???';
@@ -240,10 +243,19 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
       opponentScore: myOpponentScore,
     );
 
+    if (result == null) {
+      // finishDuel returned null — either the other device already claimed
+      // the finish (CAS guard in DuelService) or a transient error occurred.
+      // Reset the flag so the Postgres Changes 'finished' event can still
+      // trigger _forceEndDuel and navigate us to results.
+      if (mounted) setState(() => _isFinishedLocally = false);
+      return;
+    }
+
     if (mounted) {
       final myXpGain = widget.isChallenger
-          ? (result?['challenger_xp'] as int?) ?? 0
-          : (result?['opponent_xp'] as int?) ?? 0;
+          ? (result['challenger_xp'] as int?) ?? 0
+          : (result['opponent_xp'] as int?) ?? 0;
 
       context.pushReplacement('/duels/results', extra: {
         'myScore': _myScore,
@@ -543,7 +555,11 @@ class _DuelGameScreenState extends State<DuelGameScreen> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    _channel?.unsubscribe();
+    // removeChannel unsubscribes AND removes the channel from the client's
+    // internal list — prevents ghost channels on screen re-entry.
+    if (_channel != null) {
+      Supabase.instance.client.removeChannel(_channel!);
+    }
     super.dispose();
   }
 }

@@ -123,15 +123,31 @@ class DuelService {
       opponentXp = GameConstants.duelDrawXp;
     }
 
-    // Step 1: mark the duel as settling (intermediate state).
+    // Step 1: mark the duel as settling — only if it is still 'active'.
+    // This CAS (compare-and-swap) guard prevents both devices from finishing
+    // the duel simultaneously and double-awarding XP.
+    // If 0 rows are returned, another device already claimed the finish.
     try {
-      await _supabase.from('duels').update({
-        'status': 'settling',
-        'winner_id': winnerId,
-        'challenger_xp_gain': challengerXp,
-        'opponent_xp_gain': opponentXp,
-        'settling_at': DateTime.now().toIso8601String(),
-      }).eq('id', duelId);
+      final claimed = await _supabase
+          .from('duels')
+          .update({
+            'status': 'settling',
+            'winner_id': winnerId,
+            'challenger_xp_gain': challengerXp,
+            'opponent_xp_gain': opponentXp,
+            'settling_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', duelId)
+          .eq('status', 'active') // CAS guard
+          .select('id')
+          .maybeSingle();
+
+      if (claimed == null) {
+        // Another device already started settling — let it finish.
+        // The caller should wait for the 'finished' Postgres Change event.
+        debugPrint('Finish duel: already claimed by another device');
+        return null;
+      }
     } catch (e) {
       debugPrint('Finish duel (mark settling) failed: $e');
       return null;
