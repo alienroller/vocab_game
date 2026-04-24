@@ -111,12 +111,16 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   void _navigateToGame(Map<String, dynamic> duelData) {
     if (!mounted) return;
 
-    // Guard against double-navigation by checking the current route directly.
-    // This replaces a mutable flag that got stuck at true because the
-    // push().then() callback doesn't fire reliably after the duel ends via
-    // pushReplacement(results) → go('/home'), which wipes the root stack
-    // without popping routes normally.
-    final currentRoute = GoRouterState.of(context).uri.toString();
+    // Read the router's GLOBAL top-of-stack URI — not GoRouterState.of(context),
+    // which returns the lobby's own branch URI ('/duels') and stays stuck on
+    // that even after '/duels/game' is pushed on the root navigator. The
+    // context-local version caused the 10-second poll timer to re-push the
+    // game screen every tick while a duel was in progress.
+    final currentRoute = GoRouter.of(context)
+        .routerDelegate
+        .currentConfiguration
+        .uri
+        .toString();
     if (currentRoute.startsWith('/duels/game') ||
         currentRoute.startsWith('/duels/results')) {
       return;
