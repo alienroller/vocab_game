@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,9 +7,13 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../providers/class_students_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/teacher_classes_provider.dart';
+import '../../services/analytics_service.dart';
+import '../../services/assignment_service.dart';
 import '../../services/class_service.dart';
 import '../../services/teacher_message_service.dart';
 import '../../theme/app_theme.dart';
+import '../../models/teacher_class.dart';
 import '../../models/teacher_message.dart';
 
 class TeacherDashboardScreen extends ConsumerStatefulWidget {
@@ -21,11 +27,51 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
   TeacherMessage? _message;
   bool _isLoadingMessage = true;
   String? _className;
+  int? _totalActiveAssignments;
+  int? _totalAtRiskAllClasses;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // Keep the class-picker in the app bar in sync even if the teacher has
+    // not visited /teacher/classes this session, then fire the cross-class
+    // at-risk count once the class list is available.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final profile = ref.read(profileProvider);
+      if (profile != null) {
+        await ref.read(teacherClassesProvider.notifier).load(profile.id);
+        unawaited(_loadAtRiskCount());
+      }
+    });
+  }
+
+  Future<void> _loadAtRiskCount() async {
+    final profile = ref.read(profileProvider);
+    if (profile == null) return;
+    final classes = ref.read(teacherClassesProvider).classes;
+    if (classes.isEmpty) return;
+    try {
+      final n = await AnalyticsService.getTeacherAtRiskCount(
+        classCodes: classes.map((c) => c.code).toList(),
+        teacherId: profile.id,
+      );
+      if (mounted) setState(() => _totalAtRiskAllClasses = n);
+    } catch (e, s) {
+      debugPrint('At-risk count failed: $e\n$s');
+    }
+  }
+
+  Future<void> _switchActiveClass(String newCode) async {
+    final profile = ref.read(profileProvider);
+    if (profile == null || profile.classCode == newCode) return;
+    await ref.read(profileProvider.notifier).setClassCode(newCode);
+    // classStudentsProvider + dashboard data will reload via the ref.listen
+    // in build() — we only need to refresh student data for the new class.
+    await ref.read(classStudentsProvider.notifier).load(
+      classCode: newCode,
+      teacherId: profile.id,
+    );
   }
 
   Future<void> _loadData() async {
@@ -36,6 +82,21 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       classCode: profile.classCode!,
       teacherId: profile.id,
     );
+
+    // Across-classes active assignment count (shown in the aggregate strip).
+    // Per-teacher query, so class switch doesn't invalidate it.
+    unawaited(
+      AssignmentService.getActiveAssignmentCountForTeacher(profile.id)
+          .then((n) {
+        if (mounted) setState(() => _totalActiveAssignments = n);
+      }).catchError((Object e, StackTrace s) {
+        debugPrint('Active assignment count failed: $e\n$s');
+      }),
+    );
+
+    // Cross-class at-risk count — requires the class list, so run it as a
+    // fire-and-forget that will no-op if classes aren't loaded yet.
+    unawaited(_loadAtRiskCount());
 
     // Fetch class name
     try {
@@ -143,15 +204,45 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    // React to the active class changing (teacher picked a different class
+    // from the switcher in /teacher/classes). Reloads dashboard data against
+    // the new class.
+    ref.listen<String?>(
+      profileProvider.select((p) => p?.classCode),
+      (prev, next) {
+        if (prev != next) {
+          setState(() {
+            _message = null;
+            _isLoadingMessage = true;
+            _className = null;
+          });
+          _loadData();
+        }
+      },
+    );
+
     final profile = ref.watch(profileProvider);
     final classesState = ref.watch(classStudentsProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (profile == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
+    final teacherClasses = ref.watch(teacherClassesProvider).classes;
+    final activeClass = _findActiveClass(teacherClasses, profile.classCode);
+    final titleText = _className
+        ?? activeClass?.className
+        ?? (profile.classCode != null ? 'Class ${profile.classCode}' : 'Dashboard');
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_className ?? (profile.classCode != null ? 'Class ${profile.classCode}' : 'Dashboard')),
+        title: teacherClasses.length > 1
+            ? _ClassPickerTitle(
+                titleText: titleText,
+                classes: teacherClasses,
+                activeCode: profile.classCode,
+                onSelect: _switchActiveClass,
+              )
+            : Text(titleText),
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
@@ -175,6 +266,22 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // 0. Across-classes aggregate strip (only for multi-class teachers)
+              if (teacherClasses.length >= 2) ...[
+                _AcrossClassesStrip(
+                  classCount: teacherClasses.length,
+                  totalStudents: teacherClasses.fold<int>(
+                    0,
+                    (sum, c) => sum + c.studentCount,
+                  ),
+                  activeAssignments: _totalActiveAssignments,
+                  atRiskCount: _totalAtRiskAllClasses,
+                  isDark: isDark,
+                  onTap: () => context.push('/teacher/classes'),
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // 1. Class Health Card
               if (classesState.healthScore != null) ...[
                 GestureDetector(
@@ -337,5 +444,180 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       case 'red': return Colors.red;
       default: return Colors.grey;
     }
+  }
+
+  TeacherClass? _findActiveClass(List<TeacherClass> classes, String? code) {
+    if (code == null) return null;
+    for (final c in classes) {
+      if (c.code == code) return c;
+    }
+    return null;
+  }
+}
+
+/// Tappable app-bar title that opens a menu of the teacher's classes so they
+/// can switch active class without leaving the dashboard.
+class _ClassPickerTitle extends StatelessWidget {
+  final String titleText;
+  final List<TeacherClass> classes;
+  final String? activeCode;
+  final ValueChanged<String> onSelect;
+
+  const _ClassPickerTitle({
+    required this.titleText,
+    required this.classes,
+    required this.activeCode,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Switch class',
+      offset: const Offset(0, 40),
+      onSelected: onSelect,
+      itemBuilder: (ctx) => classes
+          .map(
+            (c) => PopupMenuItem<String>(
+              value: c.code,
+              child: Row(
+                children: [
+                  Icon(
+                    c.code == activeCode
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                    size: 18,
+                    color: c.code == activeCode ? AppTheme.violet : Colors.grey,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          c.className.isEmpty ? c.code : c.className,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${c.code} • ${c.studentCount} student'
+                          '${c.studentCount == 1 ? '' : 's'}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              titleText,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.arrow_drop_down, size: 24),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact strip showing aggregate counts across all the teacher's classes.
+/// Tapping it opens the full classes list.
+class _AcrossClassesStrip extends StatelessWidget {
+  final int classCount;
+  final int totalStudents;
+  final int? activeAssignments;
+  final int? atRiskCount;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _AcrossClassesStrip({
+    required this.classCount,
+    required this.totalStudents,
+    required this.activeAssignments,
+    required this.atRiskCount,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[
+      'Across $classCount classes',
+      '$totalStudents student${totalStudents == 1 ? '' : 's'}',
+      if (activeAssignments != null)
+        '$activeAssignments assignment${activeAssignments == 1 ? '' : 's'}',
+    ];
+    final showAtRisk = atRiskCount != null && atRiskCount! > 0;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: AppTheme.glassCard(isDark: isDark),
+          child: Row(
+            children: [
+              const Icon(Icons.workspaces_outline,
+                  size: 20, color: AppTheme.violet),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  parts.join(' • '),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+              ),
+              if (showAtRisk) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          size: 14, color: Colors.orange),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$atRiskCount at risk',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

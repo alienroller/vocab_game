@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/assignment_provider.dart';
 import '../../../providers/profile_provider.dart';
+import '../../../providers/teacher_classes_provider.dart';
 import '../../../providers/word_stats_provider.dart';
 import '../../../services/assignment_service.dart';
 import '../../../theme/app_theme.dart';
@@ -17,13 +18,35 @@ class TeacherAnalyticsScreen extends ConsumerStatefulWidget {
 class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen> {
   final Map<String, Map<String, int>> _completionCache = {};
   bool _loading = false;
+  bool _allClassesStats = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Ensure the teacher's class list is loaded so the cross-class toggle
+      // knows which codes to aggregate.
+      final profile = ref.read(profileProvider);
+      if (profile != null) {
+        ref.read(teacherClassesProvider.notifier).load(profile.id);
+      }
       _loadData();
     });
+  }
+
+  Future<void> _loadWordStats() async {
+    final profile = ref.read(profileProvider);
+    if (profile == null) return;
+    if (_allClassesStats) {
+      final classes = ref.read(teacherClassesProvider).classes;
+      final codes = classes.map((c) => c.code).toList();
+      if (codes.isEmpty && profile.classCode != null) {
+        codes.add(profile.classCode!);
+      }
+      await ref.read(wordStatsProvider.notifier).loadForTeacher(codes);
+    } else if (profile.classCode != null) {
+      await ref.read(wordStatsProvider.notifier).load(profile.classCode!);
+    }
   }
 
   Future<void> _loadData() async {
@@ -31,9 +54,9 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
     if (profile == null || profile.classCode == null) return;
 
     setState(() => _loading = true);
-    
+
     await ref.read(assignmentProvider.notifier).loadTeacherAssignments(classCode: profile.classCode!, teacherId: profile.id);
-    await ref.read(wordStatsProvider.notifier).load(profile.classCode!);
+    await _loadWordStats();
 
     final state = ref.read(assignmentProvider);
     for (final assignment in state.assignments) {
@@ -52,9 +75,22 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
 
   @override
   Widget build(BuildContext context) {
+    // React to the active class changing so analytics reflect the new class.
+    ref.listen<String?>(
+      profileProvider.select((p) => p?.classCode),
+      (prev, next) {
+        if (prev != next) {
+          _completionCache.clear();
+          _loadData();
+        }
+      },
+    );
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final assignmentState = ref.watch(assignmentProvider);
     final statsState = ref.watch(wordStatsProvider);
+    final teacherClasses = ref.watch(teacherClassesProvider).classes;
+    final showScopeToggle = teacherClasses.length >= 2;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Analytics')),
@@ -138,11 +174,43 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
                   },
                 ),
               const SizedBox(height: 32),
-              
-              const Text('Class Struggling Words', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+
+              Text(
+                _allClassesStats
+                    ? 'All-Classes Struggling Words'
+                    : 'Class Struggling Words',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 4),
-              const Text('Words students answer incorrectly most often', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                _allClassesStats
+                    ? 'Aggregated across all your classes'
+                    : 'Words students answer incorrectly most often',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
               const SizedBox(height: 12),
+              if (showScopeToggle) ...[
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment<bool>(
+                      value: false,
+                      label: Text('This class'),
+                      icon: Icon(Icons.class_outlined, size: 16),
+                    ),
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('All my classes'),
+                      icon: Icon(Icons.workspaces_outline, size: 16),
+                    ),
+                  ],
+                  selected: {_allClassesStats},
+                  onSelectionChanged: (selection) async {
+                    setState(() => _allClassesStats = selection.first);
+                    await _loadWordStats();
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
               if (statsState.isLoading && statsState.stats.isEmpty)
                 const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
               else if (statsState.stats.isEmpty)

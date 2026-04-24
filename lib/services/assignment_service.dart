@@ -63,6 +63,18 @@ class AssignmentService {
     return (data as List).map((e) => Assignment.fromMap(e)).toList();
   }
 
+  /// Counts every active assignment owned by this teacher across all their
+  /// classes. Used by the multi-class dashboard strip so the teacher can see
+  /// their total live workload at a glance.
+  static Future<int> getActiveAssignmentCountForTeacher(String teacherId) async {
+    final data = await _supabase
+        .from('assignments')
+        .select('id')
+        .eq('teacher_id', teacherId)
+        .eq('is_active', true);
+    return (data as List).length;
+  }
+
   /// Gets the assignment completion summary for a given assignment.
   /// Returns: how many students have completed it, total students in class.
   /// Used by teacher analytics to show "11/18 students completed Unit 3".
