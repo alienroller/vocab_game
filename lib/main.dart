@@ -13,7 +13,6 @@ import 'router.dart';
 import 'services/date_utils.dart';
 import 'services/notification_service.dart';
 import 'services/storage_service.dart';
-import 'services/streak_service.dart';
 import 'services/sync_service.dart';
 import 'theme/app_theme.dart';
 
@@ -50,8 +49,8 @@ void main() async {
   // Drain any pending offline syncs
   await SyncService.drainSyncQueue();
 
-  // Check streak status on app open
-  await _checkStreakOnOpen();
+  // Subscribe to incoming duel challenges for the signed-in user, if any.
+  await _subscribeForCurrentUser();
 
   await AppVersionInfo.instance.init();
 
@@ -67,41 +66,31 @@ final supabase = Supabase.instance.client;
 /// the subscription across hot restarts.
 RealtimeChannel? _duelChallengeChannel;
 
-/// Check streak status and schedule warning notification if needed.
-Future<void> _checkStreakOnOpen() async {
+/// Startup hooks for the signed-in user: weekly XP reset and the duel
+/// realtime subscription. Streak handling is no longer here — it's derived
+/// at render time via `streakProvider`, so there's nothing to "fix up" at
+/// boot. See `lib/services/streak_calculator.dart`.
+Future<void> _subscribeForCurrentUser() async {
   final profileBox = Hive.box('userProfile');
   final id = profileBox.get('id') as String?;
   if (id == null) return; // Not onboarded yet
 
-  // Build a profile to check streak
-  final profile =
-      UserProfile()
-        ..id = id
-        ..username = profileBox.get('username', defaultValue: '') as String
-        ..xp = profileBox.get('xp', defaultValue: 0) as int
-        ..level = profileBox.get('level', defaultValue: 1) as int
-        ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
-        ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
-        ..classCode = profileBox.get('classCode') as String?
-        ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
-        ..totalWordsAnswered = profileBox.get('totalWordsAnswered', defaultValue: 0) as int
-        ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
-        ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
-
-  // Check if streak was broken while app was closed
-  StreakService.checkStreakOnAppOpen(profile);
-
-  // Persist any streak reset back to Hive
-  await profileBox.put('streakDays', profile.streakDays);
-
-  // Reset weekXp if a new ISO week has started
+  // Reset weekXp if a new ISO week has started.
+  final profile = UserProfile()
+    ..id = id
+    ..username = profileBox.get('username', defaultValue: '') as String
+    ..xp = profileBox.get('xp', defaultValue: 0) as int
+    ..level = profileBox.get('level', defaultValue: 1) as int
+    ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
+    ..longestStreak = profileBox.get('longestStreak', defaultValue: 0) as int
+    ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
+    ..classCode = profileBox.get('classCode') as String?
+    ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
+    ..totalWordsAnswered =
+        profileBox.get('totalWordsAnswered', defaultValue: 0) as int
+    ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
+    ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
   await _resetWeekXpIfNeeded(profileBox, profile);
-
-  // // Show streak warning notification if they haven't played today
-  // final today = AppDateUtils.ymd(DateTime.now());
-  // if (profile.lastPlayedDate != today && profile.streakDays >= 2) {
-  //   await NotificationService.showStreakWarning(profile.streakDays);
-  // } TODO
 
   // Subscribe to incoming duel challenges — fire and forget is OK here
   // because the subscribe call itself is async but we don't need the result.

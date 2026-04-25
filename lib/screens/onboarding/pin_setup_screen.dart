@@ -53,6 +53,7 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
           'xp': 0,
           'level': 1,
           'streak_days': 0,
+          'longest_streak': 0,
           'is_teacher': widget.isTeacher,
           'week_xp': 0,
           'total_words_answered': 0,

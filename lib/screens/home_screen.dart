@@ -4,14 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:async';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:vocab_game/services/version_service.dart';
 import 'package:vocab_game/widgets/empty_vocab_list.dart';
 
 import '../providers/profile_provider.dart';
+import '../providers/streak_provider.dart';
 import '../providers/vocab_provider.dart';
 import '../providers/assignment_provider.dart';
+import '../services/streak_calculator.dart';
 import '../models/vocab.dart';
 import '../models/teacher_message.dart';
 import '../services/teacher_message_service.dart';
@@ -252,16 +253,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The rival gap is computed LIVE below using _rivalXp - xp,
     // so it updates instantly when profile XP changes via ref.watch.
 
-    final streakDays =
-        profile?.streakDays ??
-        profileBox.get('streakDays', defaultValue: 0) as int;
+    final streak = ref.watch(streakProvider);
     final username =
         profile?.username ??
         profileBox.get('username', defaultValue: '') as String;
-    final lastPlayed =
-        profile?.lastPlayedDate ?? profileBox.get('lastPlayedDate') as String?;
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final needsToPlayToday = streakDays > 0 && lastPlayed != today;
+    // The "play today!" banner shows when the streak is alive but we haven't
+    // played yet — i.e. yesterday was the last play. When broken, hide the
+    // banner: the streak is already gone, no rescue is possible today.
+    final needsToPlayToday = streak.status == StreakStatus.atRisk;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -359,7 +358,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                   ),
                                 ],
                               ),
-                            StreakWidget(streakDays: streakDays),
+                            StreakWidget(snapshot: streak),
                           ],
                         ),
                         const SizedBox(height: 14),
@@ -669,7 +668,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Play today to keep your $streakDays-day streak alive!',
+                              'Play today to keep your ${streak.displayCount}-day streak alive!',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: AppTheme.fire,

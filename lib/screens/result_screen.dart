@@ -3,11 +3,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/vocab.dart';
 import '../providers/profile_provider.dart';
+import '../providers/streak_provider.dart';
 import '../theme/app_theme.dart';
 
 /// Result screen with animated score ring, XP display, and confetti-like
@@ -322,9 +322,10 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
   }
 
   void _shareScore() {
-    final streakDays =
-        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-    final streakText = streakDays > 1 ? ' | 🔥 $streakDays-day streak!' : '';
+    final streak = ref.read(streakProvider);
+    final streakText = streak.displayCount > 1
+        ? ' | 🔥 ${streak.displayCount}-day streak!'
+        : '';
     final text = '⚡ I just scored ${widget.score}/${widget.total} and earned '
         '+${widget.xpGained} XP on VocabGame!$streakText\n'
         'Try to beat me! 📚';

@@ -11,6 +11,7 @@ CREATE TABLE profiles (
   xp integer DEFAULT 0 NOT NULL,
   level integer DEFAULT 1 NOT NULL,
   streak_days integer DEFAULT 0 NOT NULL,
+  longest_streak integer DEFAULT 0 NOT NULL,
   last_played_date date,
   class_code text,
   week_xp integer DEFAULT 0 NOT NULL,

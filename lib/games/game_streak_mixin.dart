@@ -3,15 +3,24 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/profile_provider.dart';
-import '../services/streak_service.dart';
 
 /// Shared streak integration logic for all game screens.
 ///
-/// BUG 4 fix: This mixin no longer modifies streak state. Streak evaluation is
-/// now fully centralized in ProfileNotifier._evaluateStreak() (called
-/// internally by recordGameSession()). This mixin only shows milestone UI.
+/// This mixin does not mutate streak state — that lives entirely in
+/// `ProfileNotifier._evaluateStreak()`, which is called from
+/// `recordGameSession()`. This mixin only renders the milestone celebration.
 mixin GameStreakMixin<T extends ConsumerStatefulWidget>
     on ConsumerState<T> {
+  static String? _milestoneMessage(int streakDays) {
+    return switch (streakDays) {
+      3 => "You're on a roll! 🔥 3-day streak!",
+      7 => "One week strong! 💪 You're a habit now.",
+      14 => "Two weeks! 🏆 You're in the top players.",
+      30 => 'One month! 👑 You are legendary.',
+      _ => null,
+    };
+  }
+
   /// Shows a streak milestone celebration dialog if a milestone was just hit.
   /// Call after recordGameSession() to give the user visual feedback.
   void checkAndShowStreak() {
@@ -19,7 +28,7 @@ mixin GameStreakMixin<T extends ConsumerStatefulWidget>
     if (profile == null) return;
 
     // Only show celebration on milestone streaks
-    final milestone = StreakService.milestoneMessage(profile.streakDays);
+    final milestone = _milestoneMessage(profile.streakDays);
     if (milestone != null && mounted) {
       // Prevent showing the same milestone twice per session
       final box = Hive.box('userProfile');

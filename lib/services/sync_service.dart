@@ -48,6 +48,7 @@ class SyncService {
       'xp': profile.xp,
       'level': profile.level,
       'streak_days': profile.streakDays,
+      'longest_streak': profile.longestStreak,
       'last_played_date': profile.lastPlayedDate,
       'class_code': profile.classCode,
       'week_xp': profile.weekXp,

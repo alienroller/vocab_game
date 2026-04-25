@@ -233,6 +233,7 @@ class AccountRecoveryService {
     await box.put('xp', profile['xp'] ?? 0);
     await box.put('level', profile['level'] ?? 1);
     await box.put('streakDays', profile['streak_days'] ?? 0);
+    await box.put('longestStreak', profile['longest_streak'] ?? 0);
     await box.put('lastPlayedDate', profile['last_played_date']);
     await box.put('classCode', profile['class_code']);
     await box.put('weekXp', profile['week_xp'] ?? 0);

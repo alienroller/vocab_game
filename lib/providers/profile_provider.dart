@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
 import '../services/date_utils.dart';
+import '../services/streak_calculator.dart';
 import '../services/sync_service.dart';
 import '../services/xp_service.dart';
 
@@ -61,6 +62,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..xp = box.get('xp', defaultValue: 0) as int
       ..level = box.get('level', defaultValue: 1) as int
       ..streakDays = box.get('streakDays', defaultValue: 0) as int
+      ..longestStreak = box.get('longestStreak', defaultValue: 0) as int
       ..lastPlayedDate = box.get('lastPlayedDate') as String?
       ..classCode = box.get('classCode') as String?
       ..weekXp = box.get('weekXp', defaultValue: 0) as int
@@ -96,6 +98,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('xp', 0);
     await box.put('level', 1);
     await box.put('streakDays', 0);
+    await box.put('longestStreak', 0);
     await box.put('weekXp', 0);
     await box.put('totalWordsAnswered', 0);
     await box.put('totalCorrect', 0);
@@ -109,6 +112,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..xp = 0
       ..level = 1
       ..streakDays = 0
+      ..longestStreak = 0
       ..weekXp = 0
       ..totalWordsAnswered = 0
       ..totalCorrect = 0
@@ -125,6 +129,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
       ..xp = profile.xp
       ..level = profile.level
       ..streakDays = profile.streakDays
+      ..longestStreak = profile.longestStreak
       ..lastPlayedDate = profile.lastPlayedDate
       ..classCode = profile.classCode
       ..weekXp = profile.weekXp
@@ -196,40 +201,37 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     }
   }
 
-  /// BUG 4 fix: Evaluates and updates the streak based on today's date.
-  /// Idempotent — safe to call multiple times per day (only updates once per day).
-  /// Called ONLY from recordGameSession(), not from UI code.
+  /// Evaluates and updates the streak after a game session. Idempotent —
+  /// safe to call multiple times per day. Delegates the date math to
+  /// [StreakCalculator] so the same logic is testable in isolation and the
+  /// read path (UI) and write path (here) cannot drift.
+  ///
+  /// Also bumps `longestStreak` whenever the new count beats the record.
   Future<void> _evaluateStreak(UserProfile profile) async {
     final today = DateTime.now();
     final todayStr = AppDateUtils.ymd(today);
 
-    // Already recorded today → do nothing (idempotency)
-    if (profile.lastPlayedDate == todayStr) return;
+    final newStreak = StreakCalculator.nextStreakOnPlay(
+      previousStreakDays: profile.streakDays,
+      lastPlayedDate: profile.lastPlayedDate,
+      now: today,
+    );
 
-    int newStreak;
-    if (profile.lastPlayedDate == null) {
-      // First time ever playing
-      newStreak = 1;
-    } else {
-      final lastPlayed = DateTime.parse(profile.lastPlayedDate!);
-      final daysSinceLast = today.difference(lastPlayed).inDays;
-
-      if (daysSinceLast == 1) {
-        // Played yesterday → extend streak
-        newStreak = profile.streakDays + 1;
-      } else if (daysSinceLast == 0) {
-        // Same day (clock edge case) → no change
-        newStreak = profile.streakDays;
-      } else {
-        // Missed a day → reset streak to 1
-        newStreak = 1;
-      }
+    // Idempotent: already recorded today and count unchanged → skip writes.
+    if (profile.lastPlayedDate == todayStr &&
+        newStreak == profile.streakDays) {
+      return;
     }
+
+    final newLongest =
+        newStreak > profile.longestStreak ? newStreak : profile.longestStreak;
 
     final box = Hive.box('userProfile');
     await box.put('streakDays', newStreak);
+    await box.put('longestStreak', newLongest);
     await box.put('lastPlayedDate', todayStr);
     profile.streakDays = newStreak;
+    profile.longestStreak = newLongest;
     profile.lastPlayedDate = todayStr;
   }
 
@@ -358,6 +360,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     await box.put('xp', profile.xp);
     await box.put('level', profile.level);
     await box.put('streakDays', profile.streakDays);
+    await box.put('longestStreak', profile.longestStreak);
     await box.put('lastPlayedDate', profile.lastPlayedDate);
     await box.put('classCode', profile.classCode);
     await box.put('weekXp', profile.weekXp);
