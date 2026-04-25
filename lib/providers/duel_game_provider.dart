@@ -138,13 +138,11 @@ const _sentinel = Object();
 /// by phase transitions in this notifier — the widget just listens.
 class DuelGameNotifier extends StateNotifier<DuelGameState> {
   static const _answerRevealMs = 1200;
-  static const _finishWaitTimeout = Duration(seconds: 30);
 
   final DuelGameArgs args;
   RealtimeChannel? _channel;
   Timer? _countdownTimer;
   Timer? _nextQuestionTimer;
-  Timer? _finishTimeoutTimer;
 
   DuelGameNotifier(this.args) : super(_initialState(args)) {
     _subscribe();
@@ -251,7 +249,6 @@ class DuelGameNotifier extends StateNotifier<DuelGameState> {
         ? row['opponent_username'] as String? ?? state.opponentUsername
         : row['challenger_username'] as String? ?? state.opponentUsername;
 
-    _finishTimeoutTimer?.cancel();
     state = state.copyWith(
       phase: DuelPhase.finished,
       myXpGain: myXp,
@@ -346,41 +343,21 @@ class DuelGameNotifier extends StateNotifier<DuelGameState> {
 
     if (!mounted) return;
 
-    if (result == null) {
-      // Network error — wait for Postgres Changes 'finished' event,
-      // with a hard timeout to force-settle if the opponent vanishes.
-      _scheduleFinishTimeout();
-      return;
-    }
+    // Null = transient network error. The opponent's eventual finish_duel
+    // call will commit the result, and our Postgres Changes listener will
+    // pick up the 'finished' status and navigate. Stay in `finishing`
+    // until then; the user sees a 'Settling…' spinner.
+    if (result == null) return;
 
     final status = result['status'] as String?;
     if (status == 'finished') {
       _consumeFinishedRow(result);
-    } else if (status == 'waiting') {
-      _scheduleFinishTimeout();
     } else {
       state = state.copyWith(
         phase: DuelPhase.error,
         errorMessage: 'Could not finish duel: ${result['reason'] ?? status}',
       );
     }
-  }
-
-  void _scheduleFinishTimeout() {
-    _finishTimeoutTimer?.cancel();
-    _finishTimeoutTimer = Timer(_finishWaitTimeout, () async {
-      if (!mounted || state.phase == DuelPhase.finished) return;
-      final result = await DuelService.forceFinishDuel(args.duelId);
-      if (!mounted) return;
-      if (result != null && result['status'] == 'finished') {
-        _consumeFinishedRow(result);
-      } else {
-        state = state.copyWith(
-          phase: DuelPhase.error,
-          errorMessage: 'Opponent never finished. Try again later.',
-        );
-      }
-    });
   }
 
   /// Player chose to quit mid-duel — forfeit and force-settle.
@@ -406,7 +383,6 @@ class DuelGameNotifier extends StateNotifier<DuelGameState> {
   void dispose() {
     _countdownTimer?.cancel();
     _nextQuestionTimer?.cancel();
-    _finishTimeoutTimer?.cancel();
     final channel = _channel;
     if (channel != null) {
       Supabase.instance.client.removeChannel(channel);

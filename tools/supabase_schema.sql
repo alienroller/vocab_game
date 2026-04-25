@@ -171,11 +171,12 @@ BEGIN
 END;
 $$;
 
--- ─── 11b. ATOMIC DUEL FINISH (replaces 3-step client CAS) ──────────────────
--- See supabase/migrations/008_finish_duel_rpc.sql for full doc. Both players
--- post their final score; the second caller triggers atomic XP award and
--- commit. Any exception rolls back the whole transaction (Postgres default),
--- so partial XP awards are impossible.
+-- ─── 11b. INSTANT DUEL FINISH ──────────────────────────────────────────────
+-- See supabase/migrations/009_finish_duel_instant.sql. The first call ends
+-- the duel using the caller's authoritative final score and the opponent's
+-- current DB score (which may be partial — the race to finish is the duel).
+-- Late callers get the cached result back so they can still navigate to
+-- results. Any failure rolls the whole transaction back automatically.
 CREATE OR REPLACE FUNCTION finish_duel(
   p_duel_id uuid,
   p_is_challenger boolean,
@@ -183,7 +184,6 @@ CREATE OR REPLACE FUNCTION finish_duel(
 ) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
   v_row duels%ROWTYPE;
-  v_other_done boolean;
   v_winner_id uuid;
   v_challenger_xp integer;
   v_opponent_xp integer;
@@ -212,28 +212,18 @@ BEGIN
   END IF;
 
   IF p_is_challenger THEN
+    v_row.challenger_score := p_my_final_score;
     UPDATE duels SET
       challenger_score = p_my_final_score,
-      challenger_done = true,
-      status = 'settling',
-      settling_at = COALESCE(settling_at, now())
+      challenger_done = true
     WHERE id = p_duel_id;
-    v_other_done := v_row.opponent_done;
   ELSE
+    v_row.opponent_score := p_my_final_score;
     UPDATE duels SET
       opponent_score = p_my_final_score,
-      opponent_done = true,
-      status = 'settling',
-      settling_at = COALESCE(settling_at, now())
+      opponent_done = true
     WHERE id = p_duel_id;
-    v_other_done := v_row.challenger_done;
   END IF;
-
-  IF NOT v_other_done THEN
-    RETURN jsonb_build_object('status','waiting');
-  END IF;
-
-  SELECT * INTO v_row FROM duels WHERE id = p_duel_id;
 
   IF v_row.challenger_score > v_row.opponent_score THEN
     v_winner_id := v_row.challenger_id;

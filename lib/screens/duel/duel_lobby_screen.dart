@@ -133,6 +133,9 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
 
     if (status == 'finished' || status == 'declined') {
       _navigatedDuels.remove(duelId);
+      // Refresh pending/invites lists so the just-finished duel disappears
+      // without the user having to tap the refresh button.
+      _loadData();
       return;
     }
 
@@ -152,6 +155,8 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
 
     if (status == 'finished' || status == 'declined') {
       _navigatedDuels.remove(duelId);
+      // Same as above — keep invites in sync without manual refresh.
+      _loadData();
     }
   }
 
