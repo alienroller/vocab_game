@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../providers/profile_provider.dart';
@@ -16,8 +14,6 @@ class TeacherProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider);
     if (profile == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
@@ -54,68 +50,12 @@ class TeacherProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 32),
 
-            // 2. Class info card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  const Text('Class Code', style: TextStyle(color: AppTheme.textSecondaryLight)),
-                  const SizedBox(height: 8),
-                  Text(
-                    profile.classCode ?? 'No Class',
-                    style: const TextStyle(fontSize: 32, letterSpacing: 4, fontFamily: 'monospace', fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.copy, size: 16),
-                        label: const Text('Copy'),
-                        onPressed: () {
-                          if (profile.classCode != null) {
-                            Clipboard.setData(ClipboardData(text: profile.classCode!));
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied!')));
-                          }
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.share, size: 16),
-                        label: const Text('Share'),
-                        onPressed: () {
-                          if (profile.classCode != null) {
-                            Share.share('Join my class on VocabGame! Code: ${profile.classCode}');
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // 3. Account section
+            // 2. Account section
             ListTile(
               leading: const Icon(Icons.edit, color: AppTheme.violet),
               title: const Text('Change Username'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showChangeUsernameDialog(context, ref),
-            ),
-            ListTile(
-              leading: const Icon(Icons.password, color: AppTheme.violet),
-              title: const Text('Recovery PIN'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/onboarding/pin', extra: true),
             ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.orange),
