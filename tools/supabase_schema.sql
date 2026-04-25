@@ -108,6 +108,8 @@ CREATE TABLE duels (
   started_at timestamptz,
   settling_at timestamptz,
   finished_at timestamptz,
+  challenger_done boolean DEFAULT false NOT NULL,
+  opponent_done boolean DEFAULT false NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -166,6 +168,178 @@ BEGIN
     week_xp = week_xp + amount,
     level = GREATEST(1, FLOOR(SQRT((xp + amount) / 50.0))::integer + 1)
   WHERE id = profile_id;
+END;
+$$;
+
+-- ─── 11b. ATOMIC DUEL FINISH (replaces 3-step client CAS) ──────────────────
+-- See supabase/migrations/008_finish_duel_rpc.sql for full doc. Both players
+-- post their final score; the second caller triggers atomic XP award and
+-- commit. Any exception rolls back the whole transaction (Postgres default),
+-- so partial XP awards are impossible.
+CREATE OR REPLACE FUNCTION finish_duel(
+  p_duel_id uuid,
+  p_is_challenger boolean,
+  p_my_final_score integer
+) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_row duels%ROWTYPE;
+  v_other_done boolean;
+  v_winner_id uuid;
+  v_challenger_xp integer;
+  v_opponent_xp integer;
+BEGIN
+  SELECT * INTO v_row FROM duels WHERE id = p_duel_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status','error','reason','duel_not_found');
+  END IF;
+
+  IF v_row.status = 'finished' THEN
+    RETURN jsonb_build_object(
+      'status','finished',
+      'challenger_score', v_row.challenger_score,
+      'opponent_score', v_row.opponent_score,
+      'winner_id', v_row.winner_id,
+      'challenger_xp', v_row.challenger_xp_gain,
+      'opponent_xp', v_row.opponent_xp_gain,
+      'challenger_username', v_row.challenger_username,
+      'opponent_username', v_row.opponent_username
+    );
+  END IF;
+
+  IF v_row.status NOT IN ('active','settling') THEN
+    RETURN jsonb_build_object('status','error','reason', v_row.status);
+  END IF;
+
+  IF p_is_challenger THEN
+    UPDATE duels SET
+      challenger_score = p_my_final_score,
+      challenger_done = true,
+      status = 'settling',
+      settling_at = COALESCE(settling_at, now())
+    WHERE id = p_duel_id;
+    v_other_done := v_row.opponent_done;
+  ELSE
+    UPDATE duels SET
+      opponent_score = p_my_final_score,
+      opponent_done = true,
+      status = 'settling',
+      settling_at = COALESCE(settling_at, now())
+    WHERE id = p_duel_id;
+    v_other_done := v_row.challenger_done;
+  END IF;
+
+  IF NOT v_other_done THEN
+    RETURN jsonb_build_object('status','waiting');
+  END IF;
+
+  SELECT * INTO v_row FROM duels WHERE id = p_duel_id;
+
+  IF v_row.challenger_score > v_row.opponent_score THEN
+    v_winner_id := v_row.challenger_id;
+    v_challenger_xp := 50;
+    v_opponent_xp := 20;
+  ELSIF v_row.opponent_score > v_row.challenger_score THEN
+    v_winner_id := v_row.opponent_id;
+    v_challenger_xp := 20;
+    v_opponent_xp := 50;
+  ELSE
+    v_winner_id := NULL;
+    v_challenger_xp := 30;
+    v_opponent_xp := 30;
+  END IF;
+
+  PERFORM increment_xp(v_row.challenger_id, v_challenger_xp);
+  PERFORM increment_xp(v_row.opponent_id, v_opponent_xp);
+
+  UPDATE duels SET
+    status = 'finished',
+    winner_id = v_winner_id,
+    challenger_xp_gain = v_challenger_xp,
+    opponent_xp_gain = v_opponent_xp,
+    finished_at = now()
+  WHERE id = p_duel_id;
+
+  RETURN jsonb_build_object(
+    'status','finished',
+    'challenger_score', v_row.challenger_score,
+    'opponent_score', v_row.opponent_score,
+    'winner_id', v_winner_id,
+    'challenger_xp', v_challenger_xp,
+    'opponent_xp', v_opponent_xp,
+    'challenger_username', v_row.challenger_username,
+    'opponent_username', v_row.opponent_username
+  );
+END;
+$$;
+
+-- Force-finish for the 30s timeout fallback when an opponent disconnects.
+CREATE OR REPLACE FUNCTION force_finish_duel(p_duel_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_row duels%ROWTYPE;
+  v_winner_id uuid;
+  v_challenger_xp integer;
+  v_opponent_xp integer;
+BEGIN
+  SELECT * INTO v_row FROM duels WHERE id = p_duel_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status','error','reason','duel_not_found');
+  END IF;
+
+  IF v_row.status = 'finished' THEN
+    RETURN jsonb_build_object(
+      'status','finished',
+      'challenger_score', v_row.challenger_score,
+      'opponent_score', v_row.opponent_score,
+      'winner_id', v_row.winner_id,
+      'challenger_xp', v_row.challenger_xp_gain,
+      'opponent_xp', v_row.opponent_xp_gain,
+      'challenger_username', v_row.challenger_username,
+      'opponent_username', v_row.opponent_username
+    );
+  END IF;
+
+  IF v_row.status NOT IN ('active','settling') THEN
+    RETURN jsonb_build_object('status','error','reason', v_row.status);
+  END IF;
+
+  IF v_row.challenger_score > v_row.opponent_score THEN
+    v_winner_id := v_row.challenger_id;
+    v_challenger_xp := 50;
+    v_opponent_xp := 20;
+  ELSIF v_row.opponent_score > v_row.challenger_score THEN
+    v_winner_id := v_row.opponent_id;
+    v_challenger_xp := 20;
+    v_opponent_xp := 50;
+  ELSE
+    v_winner_id := NULL;
+    v_challenger_xp := 30;
+    v_opponent_xp := 30;
+  END IF;
+
+  PERFORM increment_xp(v_row.challenger_id, v_challenger_xp);
+  PERFORM increment_xp(v_row.opponent_id, v_opponent_xp);
+
+  UPDATE duels SET
+    status = 'finished',
+    winner_id = v_winner_id,
+    challenger_xp_gain = v_challenger_xp,
+    opponent_xp_gain = v_opponent_xp,
+    finished_at = now()
+  WHERE id = p_duel_id;
+
+  RETURN jsonb_build_object(
+    'status','finished',
+    'challenger_score', v_row.challenger_score,
+    'opponent_score', v_row.opponent_score,
+    'winner_id', v_winner_id,
+    'challenger_xp', v_challenger_xp,
+    'opponent_xp', v_opponent_xp,
+    'challenger_username', v_row.challenger_username,
+    'opponent_username', v_row.opponent_username
+  );
 END;
 $$;
 

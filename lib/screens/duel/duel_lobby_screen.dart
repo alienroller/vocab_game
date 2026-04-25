@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,8 +10,11 @@ import '../../theme/app_theme.dart';
 
 /// Duel lobby — two tabs: Challenge classmates + View incoming invites.
 ///
-/// Auto-refreshes when the tab becomes visible and polls for new invites
-/// every 15 seconds while the screen is active.
+/// Realtime-driven (no polling): a single Supabase channel listens for
+/// (a) new invites, (b) my-duel transitioning to active. A duelId Set
+/// prevents the same row update from triggering navigation more than once
+/// — every score-update during a game would otherwise re-push the game
+/// screen and restart the countdown.
 class DuelLobbyScreen extends ConsumerStatefulWidget {
   const DuelLobbyScreen({super.key});
 
@@ -28,8 +29,14 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   List<Map<String, dynamic>> _pendingDuels = [];
   List<Map<String, dynamic>> _incomingInvites = [];
   bool _loading = true;
-  Timer? _pollTimer;
   RealtimeChannel? _pendingDuelsChannel;
+
+  /// Tracks duelIds we've already pushed the game screen for, so further
+  /// realtime events on the same duel (score updates, finish event) don't
+  /// re-trigger navigation. The lobby widget lives forever inside the
+  /// IndexedStack, so this set survives between duels — entries are cleared
+  /// when the duel reaches a terminal status.
+  final Set<String> _navigatedDuels = <String>{};
 
   String? get _classCode => Hive.box('userProfile').get('classCode') as String?;
   String? get _userId => Hive.box('userProfile').get('id') as String?;
@@ -41,12 +48,10 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     WidgetsBinding.instance.addObserver(this);
     _startRealtimeSubscription();
     _loadData();
-    _startPolling();
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
     if (_pendingDuelsChannel != null) {
       Supabase.instance.client.removeChannel(_pendingDuelsChannel!);
     }
@@ -66,79 +71,103 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final userId = _userId;
     if (userId == null) return;
 
-    _pendingDuelsChannel = Supabase.instance.client.channel('duel_lobby_$userId')
-      // Challenger side: fires when my sent challenge is accepted (status → 'active').
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.update,
-        schema: 'public',
-        table: 'duels',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'challenger_id',
-          value: userId,
-        ),
-        callback: (payload) {
-          if (!mounted) return;
-          final newData = payload.newRecord;
-          if (newData['status'] == 'active') {
-            _navigateToGame(newData);
-          }
-        },
-      )
-      // Opponent side: fires when someone creates a new challenge targeting me.
-      // Refreshes the invites list and fires a local notification immediately —
-      // previously this was only discovered by the 10-second poll.
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.insert,
-        schema: 'public',
-        table: 'duels',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'opponent_id',
-          value: userId,
-        ),
-        callback: (payload) {
-          if (!mounted) return;
-          _loadData();
-          final challenger =
-              payload.newRecord['challenger_username'] as String? ?? 'Someone';
-          NotificationService.notifyDuelChallenge(challenger);
-        },
-      )
-      ..subscribe();
+    _pendingDuelsChannel = Supabase.instance.client
+        .channel('duel_lobby_$userId')
+        // Challenger side: fires on every UPDATE to my own duels rows. The
+        // filter cannot express "status changed to active", so the callback
+        // gets called on every score update during the game too — the Set
+        // dedup below ensures we navigate exactly once per duelId.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'duels',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'challenger_id',
+            value: userId,
+          ),
+          callback: _onChallengerDuelUpdate,
+        )
+        // Opponent side: same dedup applies — accepting a duel pushes the
+        // game route directly, but a stray realtime event shouldn't cause
+        // a second push.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'duels',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'opponent_id',
+            value: userId,
+          ),
+          callback: _onOpponentDuelUpdate,
+        )
+        // New invite arrived for me — refresh list, fire local notification.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'duels',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'opponent_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            _loadData();
+            final challenger =
+                payload.newRecord['challenger_username'] as String? ??
+                    'Someone';
+            NotificationService.notifyDuelChallenge(challenger);
+          },
+        )
+        .subscribe();
   }
 
-  void _navigateToGame(Map<String, dynamic> duelData) {
+  void _onChallengerDuelUpdate(PostgresChangePayload payload) {
     if (!mounted) return;
+    final row = payload.newRecord;
+    final duelId = row['id'] as String?;
+    final status = row['status'] as String?;
+    if (duelId == null) return;
 
-    // Read the router's GLOBAL top-of-stack URI — not GoRouterState.of(context),
-    // which returns the lobby's own branch URI ('/duels') and stays stuck on
-    // that even after '/duels/game' is pushed on the root navigator. The
-    // context-local version caused the 10-second poll timer to re-push the
-    // game screen every tick while a duel was in progress.
-    final currentRoute = GoRouter.of(context)
-        .routerDelegate
-        .currentConfiguration
-        .uri
-        .toString();
-    if (currentRoute.startsWith('/duels/game') ||
-        currentRoute.startsWith('/duels/results')) {
+    if (status == 'finished' || status == 'declined') {
+      _navigatedDuels.remove(duelId);
       return;
     }
 
+    // Only navigate the FIRST time we see this duel become active. Subsequent
+    // score-update events arrive on the same channel but are ignored.
+    if (status == 'active' && _navigatedDuels.add(duelId)) {
+      _navigateToGame(row, isChallenger: true);
+    }
+  }
+
+  void _onOpponentDuelUpdate(PostgresChangePayload payload) {
+    if (!mounted) return;
+    final row = payload.newRecord;
+    final duelId = row['id'] as String?;
+    final status = row['status'] as String?;
+    if (duelId == null) return;
+
+    if (status == 'finished' || status == 'declined') {
+      _navigatedDuels.remove(duelId);
+    }
+  }
+
+  void _navigateToGame(
+    Map<String, dynamic> duelData, {
+    required bool isChallenger,
+  }) {
+    if (!mounted) return;
     final words = List<Map<String, dynamic>>.from(
-        (duelData['word_set'] as List).map((w) => Map<String, dynamic>.from(w)));
+        (duelData['word_set'] as List)
+            .map((w) => Map<String, dynamic>.from(w)));
 
     context.push('/duels/game', extra: {
       'duelId': duelData['id'] as String,
       'words': words,
-      'isChallenger': true,
-    });
-  }
-
-  void _startPolling() {
-    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) _loadData();
+      'isChallenger': isChallenger,
     });
   }
 
@@ -154,16 +183,25 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     try {
       final supabase = Supabase.instance.client;
 
-      // Check if we have an active duel we should join right now
+      // On (re-)entry, check if we have a duel mid-flight from EITHER side
+      // (challenger or opponent) and hop into it. The Set dedup prevents a
+      // re-navigation if we're already in the game.
       final activeData = await supabase
           .from('duels')
           .select()
-          .eq('challenger_id', userId)
+          .or('challenger_id.eq.$userId,opponent_id.eq.$userId')
           .eq('status', 'active');
-          
+
       if (activeData.isNotEmpty && mounted) {
-         _navigateToGame(activeData.first);
-         return; // Skip loading lobby since we are entering a game
+        final duel = Map<String, dynamic>.from(activeData.first as Map);
+        final duelId = duel['id'] as String?;
+        if (duelId != null && _navigatedDuels.add(duelId)) {
+          _navigateToGame(
+            duel,
+            isChallenger: duel['challenger_id'] == userId,
+          );
+        }
+        return; // Don't render lobby behind the game.
       }
 
       // Fetch teacher ID from classes table for double-exclusion
@@ -290,15 +328,14 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   }
 
   Future<void> _acceptDuel(Map<String, dynamic> duel) async {
-    final success = await DuelService.acceptDuel(duel['id'] as String);
+    final duelId = duel['id'] as String;
+    final success = await DuelService.acceptDuel(duelId);
     if (success && mounted) {
-      final words = List<Map<String, dynamic>>.from(
-          (duel['word_set'] as List).map((w) => Map<String, dynamic>.from(w)));
-      context.push('/duels/game', extra: {
-        'duelId': duel['id'] as String,
-        'words': words,
-        'isChallenger': false,
-      });
+      // Mark navigated BEFORE pushing so the realtime UPDATE event that fires
+      // immediately afterwards (status: pending → active) doesn't trigger a
+      // second push.
+      _navigatedDuels.add(duelId);
+      _navigateToGame(duel, isChallenger: false);
     }
   }
 
@@ -672,7 +709,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                 )),
             const SizedBox(height: 6),
             Text(
-              'When classmates challenge you, invites show here.\nAutomatic refresh every 15 seconds.',
+              'When classmates challenge you, invites show here instantly.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: isDark
