@@ -5,6 +5,23 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+class NoInternetException implements Exception {
+  const NoInternetException();
+  @override
+  String toString() => 'No internet connection';
+}
+
+bool _looksLikeOffline(Object e) {
+  final msg = e.toString();
+  return msg.contains('SocketException') ||
+      msg.contains('Failed host lookup') ||
+      msg.contains('No address associated with hostname') ||
+      msg.contains('Network is unreachable') ||
+      msg.contains('Connection refused') ||
+      msg.contains('Connection closed') ||
+      msg.contains('TimeoutException');
+}
+
 class WordEntry {
   final String english;
   final String uzbek;
@@ -157,6 +174,9 @@ class DictionaryService {
       }
     } catch (e) {
       debugPrint('Network validation failed: $e');
+      if (_looksLikeOffline(e)) {
+        throw const NoInternetException();
+      }
       throw Exception('Network validation error: $e');
     }
     
