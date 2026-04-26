@@ -13,6 +13,8 @@ jobs:
   build_android:
     name: Build Android AAB
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -72,15 +74,31 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//')
           echo "name=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Upload AAB to Telegram
+      - name: Rename AAB
+        run: |
+          VERSION="${{ steps.version.outputs.name }}"
+          mv build/app/outputs/bundle/release/app-release.aab \
+             build/app/outputs/bundle/release/vocab_game-${VERSION}.aab
+
+      - name: Upload AAB to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: v${{ steps.version.outputs.name }}
+          files: build/app/outputs/bundle/release/vocab_game-${{ steps.version.outputs.name }}.aab
+          generate_release_notes: true
+
+      - name: Notify Telegram
         run: |
           VERSION="${{ steps.version.outputs.name }}"
           COMMENT=$(git log -1 --pretty=%B)
-          AAB_SRC="build/app/outputs/bundle/release/app-release.aab"
-          AAB_DST="build/app/outputs/bundle/release/vocab_game-${VERSION}.aab"
-          mv "$AAB_SRC" "$AAB_DST"
-          curl -F "document=@${AAB_DST}" \
-               -F "chat_id=${CHAT_ID}" \
-               -F "caption=🤖 Android AAB ${VERSION}
-          ${COMMENT}" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="HTML" \
+            -d text="🤖 <b>Android AAB ${VERSION} is ready!</b>
+
+            ${COMMENT}
+  
+            🔗 <a href='${RELEASE_URL}'>Download from GitHub Releases</a>"

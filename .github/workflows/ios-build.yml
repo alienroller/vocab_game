@@ -12,7 +12,9 @@ env:
 jobs:
   build_ios:
     name: Build iOS IPA
-    runs-on: macos-latest
+    runs-on: macos-26
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -109,18 +111,35 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//')
           echo "name=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Upload IPA to Telegram
+      - name: Rename IPA
+        run: |
+          VERSION="${{ steps.version.outputs.name }}"
+          IPA_SRC=$(find "$IPA_DIR" -name "*.ipa" | head -1)
+          mv "$IPA_SRC" "$RUNNER_TEMP/vocab_game-${VERSION}.ipa"
+          echo "IPA_PATH=$RUNNER_TEMP/vocab_game-${VERSION}.ipa" >> $GITHUB_ENV
+
+      - name: Upload IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: v${{ steps.version.outputs.name }}
+          files: ${{ env.IPA_PATH }}
+          generate_release_notes: true
+
+      - name: Notify Telegram
         run: |
           VERSION="${{ steps.version.outputs.name }}"
           COMMENT=$(git log -1 --pretty=%B)
-          IPA_SRC=$(find "$IPA_DIR" -name "*.ipa" | head -1)
-          IPA_DST="$RUNNER_TEMP/vocab_game-${VERSION}.ipa"
-          mv "$IPA_SRC" "$IPA_DST"
-          curl -F "document=@${IPA_DST}" \
-               -F "chat_id=${CHAT_ID}" \
-               -F "caption=🍎 iOS IPA ${VERSION}
-          ${COMMENT}" \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d parse_mode="HTML" \
+            -d text="🍎 <b>iOS IPA ${VERSION} is ready!</b>
+  
+            ${COMMENT}
+  
+            🔗 <a href='${RELEASE_URL}'>Download from GitHub Releases</a>"
 
       - name: Clean up keychain
         if: always()
