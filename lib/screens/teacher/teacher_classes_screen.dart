@@ -12,6 +12,7 @@ import '../../providers/profile_provider.dart';
 import '../../providers/teacher_classes_provider.dart';
 import '../../services/class_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/class_switcher.dart';
 import 'create_class_sheet.dart';
 
 enum StudentSortType { xp, level, streak, accuracy, name }
@@ -329,11 +330,10 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
           children: [
             // Class switcher row — always shown so the "+ Add" button is
             // discoverable even for teachers with only one class.
-            _ClassSwitcherRow(
+            ClassSwitcherRow(
               classes: teacherClasses.classes,
               isLoading: teacherClasses.isLoading,
               activeCode: activeCode,
-              atLimit: teacherClasses.atLimit,
               onSelect: _switchActiveClass,
               onAdd: _openCreateSheet,
               onLongPress: _openClassActionsSheet,
@@ -699,165 +699,3 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
   }
 }
 
-/// Horizontally-scrollable pill row showing every class the teacher owns,
-/// with the active one highlighted and a trailing "+" to create another.
-/// Long-pressing a chip opens the class actions sheet (copy / share / delete).
-class _ClassSwitcherRow extends StatelessWidget {
-  final List<TeacherClass> classes;
-  final bool isLoading;
-  final String? activeCode;
-  final bool atLimit;
-  final ValueChanged<String> onSelect;
-  final VoidCallback onAdd;
-  final ValueChanged<TeacherClass> onLongPress;
-
-  const _ClassSwitcherRow({
-    required this.classes,
-    required this.isLoading,
-    required this.activeCode,
-    required this.atLimit,
-    required this.onSelect,
-    required this.onAdd,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  if (isLoading && classes.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  for (final c in classes)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _ClassChip(
-                        label: c.className.isEmpty ? c.code : c.className,
-                        subtitle: '${c.studentCount}',
-                        isActive: c.code == activeCode,
-                        isDark: isDark,
-                        onTap: () => onSelect(c.code),
-                        onLongPress: () => onLongPress(c),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          Tooltip(
-            message: atLimit
-                ? 'Class limit reached (${ClassService.maxClassesPerTeacher}/${ClassService.maxClassesPerTeacher})'
-                : 'Create new class',
-            child: IconButton.filledTonal(
-              onPressed: atLimit ? null : onAdd,
-              icon: const Icon(Icons.add),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ClassChip extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final bool isActive;
-  final bool isDark;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  const _ClassChip({
-    required this.label,
-    required this.subtitle,
-    required this.isActive,
-    required this.isDark,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final activeBg = AppTheme.violet.withValues(alpha: 0.18);
-    const activeBorder = AppTheme.violet;
-
-    return Material(
-      color: isActive
-          ? activeBg
-          : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white),
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: isActive
-                  ? activeBorder
-                  : Colors.grey.withValues(alpha: 0.3),
-              width: isActive ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isActive ? Icons.check_circle : Icons.class_,
-                size: 14,
-                color: isActive ? AppTheme.violet : Colors.grey,
-              ),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 140),
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isActive ? AppTheme.violet : null,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? AppTheme.violet
-                      : Colors.grey.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: isActive ? Colors.white : null,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

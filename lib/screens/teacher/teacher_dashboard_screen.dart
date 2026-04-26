@@ -15,6 +15,7 @@ import '../../services/teacher_message_service.dart';
 import '../../theme/app_theme.dart';
 import '../../models/teacher_class.dart';
 import '../../models/teacher_message.dart';
+import '../../widgets/class_switcher.dart';
 
 class TeacherDashboardScreen extends ConsumerStatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -310,9 +311,14 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         title: teacherClasses.length > 1
             ? _ClassPickerTitle(
                 titleText: titleText,
-                classes: teacherClasses,
-                activeCode: profile.classCode,
-                onSelect: _switchActiveClass,
+                onTap: () async {
+                  final picked = await showSwitchClassSheet(
+                    context: context,
+                    classes: teacherClasses,
+                    activeCode: profile.classCode,
+                  );
+                  if (picked != null) await _switchActiveClass(picked);
+                },
               )
             : Text(titleText),
         actions: [
@@ -527,79 +533,35 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
   }
 }
 
-/// Tappable app-bar title that opens a menu of the teacher's classes so they
-/// can switch active class without leaving the dashboard.
+/// Tappable app-bar title that opens [showSwitchClassSheet] so the teacher
+/// can switch active class without leaving the dashboard. The sheet uses
+/// the same [ClassSwitcherRow] as the My Classes screen for visual parity.
 class _ClassPickerTitle extends StatelessWidget {
   final String titleText;
-  final List<TeacherClass> classes;
-  final String? activeCode;
-  final ValueChanged<String> onSelect;
+  final VoidCallback onTap;
 
   const _ClassPickerTitle({
     required this.titleText,
-    required this.classes,
-    required this.activeCode,
-    required this.onSelect,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Switch class',
-      offset: const Offset(0, 40),
-      onSelected: onSelect,
-      itemBuilder: (ctx) => classes
-          .map(
-            (c) => PopupMenuItem<String>(
-              value: c.code,
-              child: Row(
-                children: [
-                  Icon(
-                    c.code == activeCode
-                        ? Icons.check_circle
-                        : Icons.circle_outlined,
-                    size: 18,
-                    color: c.code == activeCode ? AppTheme.violet : Colors.grey,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          c.className.isEmpty ? c.code : c.className,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          '${c.code} • ${c.studentCount} student'
-                          '${c.studentCount == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(titleText, overflow: TextOverflow.ellipsis),
             ),
-          )
-          .toList(),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              titleText,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.arrow_drop_down, size: 24),
-        ],
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_drop_down, size: 24),
+          ],
+        ),
       ),
     );
   }
