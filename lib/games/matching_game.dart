@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/unit_best_xp_service.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -19,7 +20,16 @@ class MatchingGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const MatchingGame({super.key, this.customWords, this.assignmentId});
+  /// Set when launched from a library/assignment unit. Presence of [unitId]
+  /// makes this run XP-eligible (delta over the user's prior best on the unit).
+  final String? unitId;
+
+  const MatchingGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<MatchingGame> createState() => _MatchingGameState();
@@ -41,6 +51,9 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
   int _lastXpGain = 0;
   bool _showXpFloat = false;
   String? _lastMatchId; // glow effect for latest match
+
+  /// Library/assignment plays earn XP; personal-practice plays don't.
+  bool get _awardsXp => widget.unitId != null;
 
   @override
   void initState() {
@@ -107,26 +120,31 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
         final matchedId = _selectedLeft!.id;
         _matchedIds.add(matchedId);
         _score++;
-        // Award XP per correct match
-        final streakDays =
-            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-        final xp = XpService.calculateXp(
-          correct: true,
-          secondsLeft: 15,
-          maxSeconds: 20,
-          streakDays: streakDays,
-        );
+        // Award XP per correct match (only for XP-eligible plays)
+        int xp = 0;
+        if (_awardsXp) {
+          final streakDays = Hive.box('userProfile')
+              .get('streakDays', defaultValue: 0) as int;
+          xp = XpService.calculateXp(
+            correct: true,
+            secondsLeft: 15,
+            maxSeconds: 20,
+            streakDays: streakDays,
+          );
+        }
         _totalXp += xp;
         _lastXpGain = xp;
-        _showXpFloat = true;
+        _showXpFloat = _awardsXp;
         _lastMatchId = matchedId;
         _selectedLeft = null;
         _selectedRight = null;
 
         // Hide XP float after animation
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) setState(() => _showXpFloat = false);
-        });
+        if (_awardsXp) {
+          Future.delayed(const Duration(milliseconds: 1200), () {
+            if (mounted) setState(() => _showXpFloat = false);
+          });
+        }
 
         // Clear glow after a bit
         Future.delayed(const Duration(milliseconds: 800), () {
@@ -137,8 +155,18 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
           Future.delayed(const Duration(milliseconds: 500), () async {
             if (!mounted) return;
 
+            int previousBest = 0;
+            int bankedXp = 0;
+            if (_awardsXp) {
+              previousBest = UnitBestXpService.getBest(widget.unitId!);
+              bankedXp = await UnitBestXpService.recordRun(
+                unitId: widget.unitId!,
+                runXp: _totalXp,
+              );
+            }
+
             await ref.read(profileProvider.notifier).recordGameSession(
-              xpGained: _totalXp,
+              xpGained: bankedXp,
               totalQuestions: _moves,
               correctAnswers: _score,
             );
@@ -171,7 +199,10 @@ class _MatchingGameState extends ConsumerState<MatchingGame>
                 'total': _moves,
                 'gameName': 'Matching',
                 'gameRoute': '/games/matching',
-                'xpGained': _totalXp,
+                'runXp': _totalXp,
+                'bankedXp': bankedXp,
+                'previousBest': previousBest,
+                'unitId': widget.unitId,
                 'customWords': widget.customWords,
                 'assignmentId': widget.assignmentId,
               });

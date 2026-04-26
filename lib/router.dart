@@ -316,6 +316,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(QuizGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -327,6 +328,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(FlashcardGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -338,6 +340,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(MatchingGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -349,6 +352,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(MemoryGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -360,6 +364,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(FillBlankGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -408,7 +413,10 @@ final GoRouter appRouter = GoRouter(
             total: args['total'] as int,
             gameName: args['gameName'] as String,
             gameRoute: args['gameRoute'] as String,
-            xpGained: args['xpGained'] as int? ?? 0,
+            runXp: args['runXp'] as int? ?? 0,
+            bankedXp: args['bankedXp'] as int? ?? 0,
+            previousBest: args['previousBest'] as int? ?? 0,
+            unitId: args['unitId'] as String?,
             customWords: args['customWords'] as List<Vocab>?,
             assignmentId: args['assignmentId'] as String?,
           ),

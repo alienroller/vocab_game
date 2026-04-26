@@ -92,6 +92,18 @@ CREATE TABLE word_mastery (
   UNIQUE(profile_id, word_id)
 );
 
+-- ─── 6b. UNIT BEST XP ───────────────────────────────────────────────────────
+-- Per-user-per-unit best XP. Replays only bank the delta over the prior best,
+-- so leaderboards can't be farmed by repeating the same unit.
+CREATE TABLE unit_best_xp (
+  profile_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  unit_id    uuid NOT NULL REFERENCES units(id)    ON DELETE CASCADE,
+  best_xp    integer NOT NULL DEFAULT 0 CHECK (best_xp >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (profile_id, unit_id)
+);
+CREATE INDEX unit_best_xp_profile_idx ON unit_best_xp (profile_id);
+
 -- ─── 7. DUELS ───────────────────────────────────────────────────────────────
 CREATE TABLE duels (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -345,6 +357,7 @@ ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE words ENABLE ROW LEVEL SECURITY;
 ALTER TABLE word_mastery ENABLE ROW LEVEL SECURITY;
+ALTER TABLE unit_best_xp ENABLE ROW LEVEL SECURITY;
 ALTER TABLE duels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hall_of_fame ENABLE ROW LEVEL SECURITY;
 
@@ -366,6 +379,11 @@ CREATE POLICY "words_read" ON words FOR SELECT USING (true);
 CREATE POLICY "mastery_read" ON word_mastery FOR SELECT USING (true);
 CREATE POLICY "mastery_insert" ON word_mastery FOR INSERT WITH CHECK (true);
 CREATE POLICY "mastery_update" ON word_mastery FOR UPDATE USING (true);
+
+-- Unit best XP: open for classroom use
+CREATE POLICY "unit_best_xp_read"   ON unit_best_xp FOR SELECT USING (true);
+CREATE POLICY "unit_best_xp_insert" ON unit_best_xp FOR INSERT WITH CHECK (true);
+CREATE POLICY "unit_best_xp_update" ON unit_best_xp FOR UPDATE USING (true);
 
 -- Duels: open
 CREATE POLICY "duels_read" ON duels FOR SELECT USING (true);

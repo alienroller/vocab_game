@@ -28,6 +28,10 @@ void main() async {
   // Open offline sync queue box
   await Hive.openBox('sync_queue');
 
+  // Per-unit best XP cache — used to bank only the delta over a user's prior
+  // best when they replay a library/assignment unit.
+  await Hive.openBox('unitBestXp');
+
   // Security box holds the Hive encryption key and the PIN rate-limit state.
   // Must be opened after StorageService.init so the cipher helper works.
   await StorageService.openSecurityBox();

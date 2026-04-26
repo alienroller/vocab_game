@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/unit_best_xp_service.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -35,7 +36,16 @@ class MemoryGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const MemoryGame({super.key, this.customWords, this.assignmentId});
+  /// Set when launched from a library/assignment unit. Presence of [unitId]
+  /// makes this run XP-eligible (delta over the user's prior best on the unit).
+  final String? unitId;
+
+  const MemoryGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<MemoryGame> createState() => _MemoryGameState();
@@ -51,6 +61,9 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
   int _combo = 0;
   List<int> _flippedIndices = [];
   bool _isProcessing = false;
+
+  /// Library/assignment plays earn XP; personal-practice plays don't.
+  bool get _awardsXp => widget.unitId != null;
 
   @override
   void initState() {
@@ -145,22 +158,27 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
           _isProcessing = false;
         });
 
-        // Award XP per pair match (combo bonus via speed)
-        final streakDays =
-            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-        final xp = XpService.calculateXp(
-          correct: true,
-          secondsLeft: 15 + min(_combo, 5), // combo gives speed bonus
-          maxSeconds: 20,
-          streakDays: streakDays,
-        );
+        // Award XP per pair match (only for XP-eligible plays)
+        int xp = 0;
+        if (_awardsXp) {
+          final streakDays = Hive.box('userProfile')
+              .get('streakDays', defaultValue: 0) as int;
+          xp = XpService.calculateXp(
+            correct: true,
+            secondsLeft: 15 + min(_combo, 5), // combo gives speed bonus
+            maxSeconds: 20,
+            streakDays: streakDays,
+          );
+        }
         _totalXp += xp;
         _lastXpGain = xp;
-        _showXpFloat = true;
+        _showXpFloat = _awardsXp;
 
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) setState(() => _showXpFloat = false);
-        });
+        if (_awardsXp) {
+          Future.delayed(const Duration(milliseconds: 1200), () {
+            if (mounted) setState(() => _showXpFloat = false);
+          });
+        }
 
         // Check win
         if (_cards.every((card) => card.isMatched)) {
@@ -168,8 +186,19 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
             if (!mounted) return;
 
             final score = _cards.length ~/ 2;
+
+            int previousBest = 0;
+            int bankedXp = 0;
+            if (_awardsXp) {
+              previousBest = UnitBestXpService.getBest(widget.unitId!);
+              bankedXp = await UnitBestXpService.recordRun(
+                unitId: widget.unitId!,
+                runXp: _totalXp,
+              );
+            }
+
             await ref.read(profileProvider.notifier).recordGameSession(
-              xpGained: _totalXp,
+              xpGained: bankedXp,
               totalQuestions: _moves,
               correctAnswers: score,
             );
@@ -202,7 +231,10 @@ class _MemoryGameState extends ConsumerState<MemoryGame>
                 'total': _moves,
                 'gameName': 'Memory',
                 'gameRoute': '/games/memory',
-                'xpGained': _totalXp,
+                'runXp': _totalXp,
+                'bankedXp': bankedXp,
+                'previousBest': previousBest,
+                'unitId': widget.unitId,
                 'customWords': widget.customWords,
                 'assignmentId': widget.assignmentId,
               });

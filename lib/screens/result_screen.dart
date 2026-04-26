@@ -12,12 +12,21 @@ import '../theme/app_theme.dart';
 
 /// Result screen with animated score ring, XP display, and confetti-like
 /// celebration particles.
+///
+/// XP semantics:
+/// - [runXp]   — XP earned in *this* play (always shown when > 0).
+/// - [bankedXp] — XP credited to the user's profile. For library/assignment
+///   plays this is the delta over the user's previous best on the unit
+///   ([previousBest]); for personal practice it's always 0.
 class ResultScreen extends ConsumerStatefulWidget {
   final int score;
   final int total;
   final String gameName;
   final String gameRoute;
-  final int xpGained;
+  final int runXp;
+  final int bankedXp;
+  final int previousBest;
+  final String? unitId;
   final List<Vocab>? customWords;
   final String? assignmentId;
 
@@ -27,7 +36,10 @@ class ResultScreen extends ConsumerStatefulWidget {
     required this.total,
     required this.gameName,
     required this.gameRoute,
-    this.xpGained = 0,
+    this.runXp = 0,
+    this.bankedXp = 0,
+    this.previousBest = 0,
+    this.unitId,
     this.customWords,
     this.assignmentId,
   });
@@ -98,7 +110,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
     final notifier = ref.read(profileProvider.notifier);
 
     await notifier.recordGameSession(
-      xpGained: widget.xpGained,
+      xpGained: widget.bankedXp,
       totalQuestions: widget.total,
       correctAnswers: widget.score,
     );
@@ -222,7 +234,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                     ),
 
                     // XP gained
-                    if (widget.xpGained > 0) ...[
+                    if (widget.runXp > 0) ...[
                       const SizedBox(height: 20),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -245,7 +257,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                                 color: AppTheme.amber, size: 28),
                             const SizedBox(width: 8),
                             Text(
-                              '+${widget.xpGained} XP',
+                              '+${widget.runXp} XP this run',
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
@@ -255,12 +267,19 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                           ],
                         ),
                       ),
+                      const SizedBox(height: 10),
+                      _BankedXpLine(
+                        runXp: widget.runXp,
+                        bankedXp: widget.bankedXp,
+                        previousBest: widget.previousBest,
+                        isDark: isDark,
+                      ),
                     ],
 
                     const Spacer(),
 
                     // Share
-                    if (widget.xpGained > 0)
+                    if (widget.runXp > 0)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: OutlinedButton.icon(
@@ -289,6 +308,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                             extra: {
                               'customWords': widget.customWords,
                               'assignmentId': widget.assignmentId,
+                              'unitId': widget.unitId,
                             },
                           ),
                           icon: const Icon(Icons.replay_rounded),
@@ -327,9 +347,76 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
         ? ' | 🔥 ${streak.displayCount}-day streak!'
         : '';
     final text = '⚡ I just scored ${widget.score}/${widget.total} and earned '
-        '+${widget.xpGained} XP on VocabGame!$streakText\n'
+        '+${widget.runXp} XP on VocabGame!$streakText\n'
         'Try to beat me! 📚';
     Share.share(text);
+  }
+}
+
+// ─── Banked XP Line ───────────────────────────────────────────────────
+//
+// Shows what was actually credited to the user's profile XP, with
+// motivating context based on whether they beat their previous best.
+
+class _BankedXpLine extends StatelessWidget {
+  final int runXp;
+  final int bankedXp;
+  final int previousBest;
+  final bool isDark;
+
+  const _BankedXpLine({
+    required this.runXp,
+    required this.bankedXp,
+    required this.previousBest,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = isDark
+        ? AppTheme.textSecondaryDark
+        : AppTheme.textSecondaryLight;
+
+    final String label;
+    final Color color;
+    final IconData icon;
+
+    if (bankedXp == 0) {
+      label = 'Banked: +0 XP — your best is $previousBest. Beat it for more!';
+      color = muted;
+      icon = Icons.flag_outlined;
+    } else if (previousBest == 0) {
+      label = 'Banked: +$bankedXp XP — first time on this unit!';
+      color = AppTheme.success;
+      icon = Icons.celebration_rounded;
+    } else {
+      label = 'Banked: +$bankedXp XP — new best! (was $previousBest)';
+      color = AppTheme.success;
+      icon = Icons.trending_up_rounded;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

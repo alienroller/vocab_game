@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
 import '../services/game_constants.dart';
+import '../services/unit_best_xp_service.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -20,7 +21,17 @@ class QuizGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const QuizGame({super.key, this.customWords, this.assignmentId});
+  /// Set when the game was launched from a library/assignment unit. Presence
+  /// of [unitId] means this run is XP-eligible; the banked amount is the delta
+  /// over the user's previous best on this unit.
+  final String? unitId;
+
+  const QuizGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<QuizGame> createState() => _QuizGameState();
@@ -39,6 +50,9 @@ class _QuizGameState extends ConsumerState<QuizGame>
   bool _answered = false;
   int? _selectedIndex;
   late DateTime _questionStartTime;
+
+  /// Library/assignment plays earn XP; personal-practice plays don't.
+  bool get _awardsXp => widget.unitId != null;
 
   @override
   void initState() {
@@ -117,17 +131,21 @@ class _QuizGameState extends ConsumerState<QuizGame>
       );
     }
 
-    // Calculate XP for this answer
-    final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
-    final secondsLeft = max(0, GameConstants.questionTimerSeconds - elapsed);
-    final streakDays =
-        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-    final xpGained = XpService.calculateXp(
-      correct: isCorrect,
-      secondsLeft: secondsLeft,
-      maxSeconds: GameConstants.questionTimerSeconds,
-      streakDays: streakDays,
-    );
+    // Calculate XP for this answer (only for XP-eligible plays)
+    int xpGained = 0;
+    if (_awardsXp) {
+      final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
+      final secondsLeft =
+          max(0, GameConstants.questionTimerSeconds - elapsed);
+      final streakDays =
+          Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+      xpGained = XpService.calculateXp(
+        correct: isCorrect,
+        secondsLeft: secondsLeft,
+        maxSeconds: GameConstants.questionTimerSeconds,
+        streakDays: streakDays,
+      );
+    }
 
     setState(() {
       _answered = true;
@@ -136,14 +154,14 @@ class _QuizGameState extends ConsumerState<QuizGame>
         _score++;
         _totalXp += xpGained;
         _lastXpGain = xpGained;
-        _showXpFloat = true;
+        _showXpFloat = _awardsXp;
       } else {
         _showXpFloat = false;
       }
     });
 
     // Hide XP float after animation
-    if (isCorrect) {
+    if (isCorrect && _awardsXp) {
       Future.delayed(GameConstants.xpFloatDuration, () {
         if (mounted) setState(() => _showXpFloat = false);
       });
@@ -158,9 +176,20 @@ class _QuizGameState extends ConsumerState<QuizGame>
           _generateOptions();
         });
       } else {
-        // Game Over
+        // Game Over — compute banked XP (delta over previous best for unit
+        // plays; 0 for personal practice).
+        int previousBest = 0;
+        int bankedXp = 0;
+        if (_awardsXp) {
+          previousBest = UnitBestXpService.getBest(widget.unitId!);
+          bankedXp = await UnitBestXpService.recordRun(
+            unitId: widget.unitId!,
+            runXp: _totalXp,
+          );
+        }
+
         await ref.read(profileProvider.notifier).recordGameSession(
-          xpGained: _totalXp,
+          xpGained: bankedXp,
           totalQuestions: _quizVocab.length,
           correctAnswers: _score,
         );
@@ -193,7 +222,10 @@ class _QuizGameState extends ConsumerState<QuizGame>
             'total': _quizVocab.length,
             'gameName': 'Quiz',
             'gameRoute': '/games/quiz',
-            'xpGained': _totalXp,
+            'runXp': _totalXp,
+            'bankedXp': bankedXp,
+            'previousBest': previousBest,
+            'unitId': widget.unitId,
             'customWords': widget.customWords,
             'assignmentId': widget.assignmentId,
           });
