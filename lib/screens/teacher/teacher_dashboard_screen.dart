@@ -16,6 +16,7 @@ import '../../theme/app_theme.dart';
 import '../../models/teacher_class.dart';
 import '../../models/teacher_message.dart';
 import '../../widgets/class_switcher.dart';
+import '../../widgets/teacher_onboarding_checklist.dart';
 
 class TeacherDashboardScreen extends ConsumerStatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -382,6 +383,30 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 ),
                 const SizedBox(height: 16),
               ],
+
+              // 0.5. First-run checklist — auto-hides once all 3 steps done.
+              TeacherOnboardingChecklist(
+                hasStudents: classesState.students.isNotEmpty,
+                hasAssignment: (_totalActiveAssignments ?? 0) > 0,
+                hasMessage: _message != null,
+                onShareCode: () {
+                  if (profile.classCode != null) {
+                    Share.share(
+                      'Join my class on VocabGame! Code: ${profile.classCode}',
+                    );
+                  }
+                },
+                onOpenLibrary: () => context.go('/teacher/library'),
+                onPinMessage: () {
+                  if (profile.classCode != null) {
+                    _editMessage(profile.classCode!, profile.id);
+                  }
+                },
+              ),
+              if (classesState.students.isEmpty ||
+                  (_totalActiveAssignments ?? 0) == 0 ||
+                  _message == null)
+                const SizedBox(height: 16),
 
               // 1. At-Risk Section — most-actionable item, shown first.
               if (classesState.students.isNotEmpty && classesState.healthScore != null) ...[
