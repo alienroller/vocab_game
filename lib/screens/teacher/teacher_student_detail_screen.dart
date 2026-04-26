@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
 import '../../models/class_student.dart';
 import '../../models/assignment_progress.dart';
+import '../../providers/class_students_provider.dart';
+import '../../providers/profile_provider.dart';
 import '../../services/assignment_service.dart';
+import '../../services/class_service.dart';
 import '../../theme/app_theme.dart';
 
-class TeacherStudentDetailScreen extends StatefulWidget {
+class TeacherStudentDetailScreen extends ConsumerStatefulWidget {
   final ClassStudent student;
   const TeacherStudentDetailScreen({super.key, required this.student});
 
   @override
-  State<TeacherStudentDetailScreen> createState() => _TeacherStudentDetailScreenState();
+  ConsumerState<TeacherStudentDetailScreen> createState() =>
+      _TeacherStudentDetailScreenState();
 }
 
-class _TeacherStudentDetailScreenState extends State<TeacherStudentDetailScreen> {
+class _TeacherStudentDetailScreenState
+    extends ConsumerState<TeacherStudentDetailScreen> {
   Map<String, AssignmentProgress>? _progressMap;
   List<Map<String, dynamic>> _assignments = []; // We will fetch basic info of all active class assignments
   bool _loading = true;
@@ -40,12 +48,100 @@ class _TeacherStudentDetailScreenState extends State<TeacherStudentDetailScreen>
     }
   }
 
+  Future<void> _confirmRemove() async {
+    final classCode = widget.student.classCode;
+    if (classCode == null || classCode.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove from class?'),
+        content: Text(
+          'Remove @${widget.student.username} from this class.\n\n'
+          'Their XP, streak, and progress are kept — they can rejoin '
+          'with the class code.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ClassService.removeStudentFromClass(
+        studentId: widget.student.id,
+        classCode: classCode,
+      );
+      if (!mounted) return;
+      // Refresh the active class's student list so the removed student
+      // disappears immediately when the teacher pops back.
+      final profile = ref.read(profileProvider);
+      if (profile != null && profile.classCode != null) {
+        await ref.read(classStudentsProvider.notifier).load(
+          classCode: profile.classCode!,
+          teacherId: profile.id,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed @${widget.student.username} from the class.'),
+        ),
+      );
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to remove: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasClass = (widget.student.classCode ?? '').isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: Text('@${widget.student.username}')),
+      appBar: AppBar(
+        title: Text('@${widget.student.username}'),
+        actions: [
+          if (hasClass)
+            PopupMenuButton<String>(
+              tooltip: 'Student actions',
+              onSelected: (v) {
+                if (v == 'remove') _confirmRemove();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(
+                  value: 'remove',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_remove_outlined,
+                          color: Colors.red, size: 18),
+                      SizedBox(width: 10),
+                      Text(
+                        'Remove from class',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

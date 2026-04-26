@@ -92,6 +92,22 @@ class ClassService {
     return classData;
   }
 
+  /// Removes a student from a class by clearing their `class_code`. Called
+  /// from the teacher's student detail screen. Does not delete the student's
+  /// profile or progress — they keep their XP, streak and word stats and can
+  /// rejoin (this class or another) later.
+  static Future<void> removeStudentFromClass({
+    required String studentId,
+    required String classCode,
+  }) async {
+    await _supabase
+        .from('profiles')
+        .update({'class_code': null})
+        .eq('id', studentId)
+        .eq('class_code', classCode)
+        .eq('is_teacher', false);
+  }
+
   /// Gets the class info for a given code.
   static Future<Map<String, dynamic>?> getClassInfo(String code) async {
     return await _supabase
