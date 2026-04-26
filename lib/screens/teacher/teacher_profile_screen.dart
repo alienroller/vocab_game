@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../providers/profile_provider.dart';
+import '../../providers/theme_mode_provider.dart';
 import '../../services/sync_service.dart';
+import '../../services/version_service.dart';
 import '../../theme/app_theme.dart';
 
 class TeacherProfileScreen extends ConsumerWidget {
@@ -57,6 +61,91 @@ class TeacherProfileScreen extends ConsumerWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showChangeUsernameDialog(context, ref),
             ),
+            if (profile.classCode != null)
+              ListTile(
+                leading: const Icon(Icons.qr_code_2, color: AppTheme.violet),
+                title: const Text('Share class code'),
+                subtitle: Text(
+                  profile.classCode!,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1,
+                  ),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy code',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: profile.classCode!));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Copied!')),
+                    );
+                  },
+                ),
+                onTap: () => Share.share(
+                  'Join my class on VocabGame! Code: ${profile.classCode}',
+                ),
+              ),
+
+            const Divider(),
+
+            // 3. App preferences
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'APP',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            _ThemeTile(),
+            ListTile(
+              leading: const Icon(Icons.help_outline, color: AppTheme.violet),
+              title: const Text('How students join'),
+              subtitle: const Text(
+                'Share your class code; students enter it on the welcome screen.',
+                style: TextStyle(fontSize: 12),
+              ),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('How students join'),
+                  content: const Text(
+                    '1. Share your class code with students.\n\n'
+                    '2. On the welcome screen they tap "I have a class code" '
+                    'and type it in.\n\n'
+                    '3. Once joined, they see your pinned message, your '
+                    'assignments, and the leaderboard for the class.\n\n'
+                    'Students who lose access can rejoin any time with the '
+                    'same code.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Got it'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline, color: Colors.grey),
+              title: const Text('Version'),
+              subtitle: Text(
+                _versionLabel(),
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+
+            const Divider(),
+
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.orange),
               title: const Text('Logout', style: TextStyle(color: Colors.orange)),
@@ -141,6 +230,13 @@ class TeacherProfileScreen extends ConsumerWidget {
     );
   }
 
+  String _versionLabel() {
+    final v = AppVersionInfo.instance.version;
+    final b = AppVersionInfo.instance.buildNumber;
+    if (v.isEmpty) return '—';
+    return b.isEmpty ? v : '$v ($b)';
+  }
+
   void _showChangeUsernameDialog(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
     showDialog(
@@ -183,6 +279,82 @@ class TeacherProfileScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// ListTile that surfaces the persisted ThemeMode and lets the teacher
+/// switch between system / light / dark. Stored via [themeModeProvider].
+class _ThemeTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    String label;
+    IconData icon;
+    switch (mode) {
+      case ThemeMode.light:
+        label = 'Light';
+        icon = Icons.light_mode_outlined;
+        break;
+      case ThemeMode.dark:
+        label = 'Dark';
+        icon = Icons.dark_mode_outlined;
+        break;
+      case ThemeMode.system:
+        label = 'System default';
+        icon = Icons.brightness_auto_outlined;
+        break;
+    }
+
+    return ListTile(
+      leading: Icon(icon, color: AppTheme.violet),
+      title: const Text('Theme'),
+      subtitle: Text(label, style: const TextStyle(fontSize: 12)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () async {
+        final picked = await showModalBottomSheet<ThemeMode>(
+          context: context,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (sheetCtx) => SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                const Text(
+                  'Theme',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                for (final option in const [
+                  (ThemeMode.system, 'System default',
+                      Icons.brightness_auto_outlined),
+                  (ThemeMode.light, 'Light', Icons.light_mode_outlined),
+                  (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
+                ])
+                  RadioListTile<ThemeMode>(
+                    value: option.$1,
+                    groupValue: mode,
+                    onChanged: (v) => Navigator.pop(sheetCtx, v),
+                    title: Row(
+                      children: [
+                        Icon(option.$3, size: 18),
+                        const SizedBox(width: 10),
+                        Text(option.$2),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+        if (picked != null) {
+          await ref.read(themeModeProvider.notifier).setMode(picked);
+        }
+      },
     );
   }
 }

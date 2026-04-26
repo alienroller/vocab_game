@@ -9,6 +9,7 @@ import 'package:vocab_game/services/storage_provider.dart';
 import 'package:vocab_game/services/version_service.dart';
 
 import 'models/user_profile.dart';
+import 'providers/theme_mode_provider.dart';
 import 'router.dart';
 import 'services/date_utils.dart';
 import 'services/notification_service.dart';
@@ -175,18 +176,19 @@ Future<void> disposeDuelChannel() async {
   _duelChallengeChannel = null;
 }
 
-class VocabGameApp extends StatelessWidget {
+class VocabGameApp extends ConsumerWidget {
   const VocabGameApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Vocab Game',
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
     );
   }
 }
