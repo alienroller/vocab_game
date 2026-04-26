@@ -124,79 +124,151 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
 
   void _editMessage(String classCode, String teacherId) {
     final controller = TextEditingController(text: _message?.message ?? '');
-    showModalBottomSheet(
+    final allClasses = ref.read(teacherClassesProvider).classes;
+    final activeClass = _findActiveClass(allClasses, classCode);
+    final activeClassLabel = activeClass?.className.isNotEmpty == true
+        ? activeClass!.className
+        : classCode;
+    final hasMultipleClasses = allClasses.length > 1;
+    var pinToAll = false;
+
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Pin a Message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                maxLength: 200,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. Test on Friday! Study Unit 4.',
-                  border: OutlineInputBorder(),
-                ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final targetCount = pinToAll ? allClasses.length : 1;
+            final scopeText = pinToAll
+                ? 'Pinning to all $targetCount classes'
+                : 'Pinning to $activeClassLabel';
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+                left: 20,
+                right: 20,
+                top: 20,
               ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextButton(
-                    onPressed: () async {
-                      try {
-                        await TeacherMessageService.deleteMessage(classCode);
-                        setState(() => _message = null);
-                        if (context.mounted) Navigator.pop(context);
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Failed to clear: $e'), backgroundColor: Colors.red),
-                          );
-                        }
-                      }
-                    },
-                    child: const Text('Clear', style: TextStyle(color: Colors.red)),
+                  const Text(
+                    'Pin a Message',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      try {
-                        final trimmed = controller.text.trim();
-                        if (trimmed.isNotEmpty) {
-                          await TeacherMessageService.setMessage(
-                            classCode: classCode,
-                            teacherId: teacherId,
-                            message: trimmed,
-                          );
-                          final newMsg = await TeacherMessageService.getMessage(classCode);
-                          if (context.mounted) setState(() => _message = newMsg);
-                        }
-                        if (context.mounted) Navigator.pop(context);
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to save message: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    child: const Text('Save'),
+                  const SizedBox(height: 4),
+                  Text(
+                    scopeText,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
                   ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    maxLength: 200,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Test on Friday! Study Unit 4.',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (hasMultipleClasses) ...[
+                    const SizedBox(height: 4),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Pin to all my classes'),
+                      subtitle: Text(
+                        'Sends the same message to all ${allClasses.length} of your classes.',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      value: pinToAll,
+                      onChanged: (v) => setSheetState(() => pinToAll = v),
+                    ),
+                  ] else
+                    const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          try {
+                            await TeacherMessageService.deleteMessage(classCode);
+                            setState(() => _message = null);
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                          } catch (e) {
+                            if (sheetContext.mounted) {
+                              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to clear: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: const Text(
+                          'Clear',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final trimmed = controller.text.trim();
+                            if (trimmed.isNotEmpty) {
+                              final targetCodes = pinToAll
+                                  ? allClasses.map((c) => c.code).toList()
+                                  : [classCode];
+                              await TeacherMessageService.setMessageForClasses(
+                                classCodes: targetCodes,
+                                teacherId: teacherId,
+                                message: trimmed,
+                              );
+                              final newMsg = await TeacherMessageService
+                                  .getMessage(classCode);
+                              if (mounted) setState(() => _message = newMsg);
+                            }
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                            if (mounted && pinToAll) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Pinned to ${allClasses.length} classes.',
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (sheetContext.mounted) {
+                              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to save message: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
                 ],
               ),
-              const SizedBox(height: 20),
-            ],
-          ),
+            );
+          },
         );
       },
     );

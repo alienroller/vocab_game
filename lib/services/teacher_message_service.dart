@@ -14,17 +14,36 @@ class TeacherMessageService {
     required String classCode,
     required String teacherId,
     required String message,
+  }) =>
+      setMessageForClasses(
+        classCodes: [classCode],
+        teacherId: teacherId,
+        message: message,
+      );
+
+  /// Sets the same message on multiple classes. Used when a teacher picks
+  /// "Pin to all my classes" — one round-trip per class is fine for the
+  /// teacher's class limit (5).
+  static Future<void> setMessageForClasses({
+    required List<String> classCodes,
+    required String teacherId,
+    required String message,
   }) async {
-    await _supabase
-        .from('teacher_messages')
-        .delete()
-        .eq('class_code', classCode);
-    await _supabase.from('teacher_messages').insert({
-      'class_code': classCode,
-      'teacher_id': teacherId,
-      'message': message.trim(),
-      'updated_at': DateTime.now().toIso8601String(),
-    });
+    if (classCodes.isEmpty) return;
+    final trimmed = message.trim();
+    final now = DateTime.now().toIso8601String();
+    for (final code in classCodes) {
+      await _supabase
+          .from('teacher_messages')
+          .delete()
+          .eq('class_code', code);
+      await _supabase.from('teacher_messages').insert({
+        'class_code': code,
+        'teacher_id': teacherId,
+        'message': trimmed,
+        'updated_at': now,
+      });
+    }
   }
 
   /// Removes the teacher's message (students will see no message card).
