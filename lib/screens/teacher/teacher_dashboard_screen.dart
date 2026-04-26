@@ -31,6 +31,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
   String? _className;
   int? _totalActiveAssignments;
   int? _totalAtRiskAllClasses;
+  Map<String, int> _atRiskBreakdown = const <String, int>{};
 
   @override
   void initState() {
@@ -54,14 +55,95 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
     final classes = ref.read(teacherClassesProvider).classes;
     if (classes.isEmpty) return;
     try {
-      final n = await AnalyticsService.getTeacherAtRiskCount(
+      final breakdown = await AnalyticsService.getTeacherAtRiskBreakdown(
         classCodes: classes.map((c) => c.code).toList(),
         teacherId: profile.id,
       );
-      if (mounted) setState(() => _totalAtRiskAllClasses = n);
+      final total = breakdown.values.fold<int>(0, (sum, n) => sum + n);
+      if (mounted) {
+        setState(() {
+          _atRiskBreakdown = breakdown;
+          _totalAtRiskAllClasses = total;
+        });
+      }
     } catch (e, s) {
       debugPrint('At-risk count failed: $e\n$s');
     }
+  }
+
+  /// Handler for the cross-class strip tap. If any class has at-risk
+  /// students, show a per-class breakdown so the teacher can jump straight
+  /// into that class. Otherwise fall back to the My Classes screen.
+  Future<void> _onTapAcrossStrip(
+    List<TeacherClass> classes,
+    String teacherId,
+  ) async {
+    final breakdown = _atRiskBreakdown;
+    if (breakdown.isEmpty) {
+      unawaited(context.push('/teacher/classes'));
+      return;
+    }
+    if (breakdown.length == 1) {
+      // Only one class has at-risk students — switch and skip the picker.
+      final code = breakdown.keys.first;
+      await _switchActiveClass(code);
+      return;
+    }
+
+    // Multiple classes have at-risk students — let the teacher pick one.
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        final entries = breakdown.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              const Text(
+                'At-risk students',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Pick a class to see who needs attention.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              for (final entry in entries)
+                ListTile(
+                  leading: const Icon(Icons.warning_amber_rounded,
+                      color: Colors.orange),
+                  title: Text(
+                    classes
+                            .firstWhere(
+                              (c) => c.code == entry.key,
+                              orElse: () => classes.first,
+                            )
+                            .className
+                            .isNotEmpty
+                        ? classes
+                            .firstWhere((c) => c.code == entry.key)
+                            .className
+                        : entry.key,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text('${entry.key} • ${entry.value} at risk'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.pop(sheetCtx, entry.key),
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null) await _switchActiveClass(picked);
   }
 
   Future<void> _switchActiveClass(String newCode) async {
@@ -379,7 +461,8 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                   activeAssignments: _totalActiveAssignments,
                   atRiskCount: _totalAtRiskAllClasses,
                   isDark: isDark,
-                  onTap: () => context.push('/teacher/classes'),
+                  onTap: () =>
+                      _onTapAcrossStrip(teacherClasses, profile.id),
                 ),
                 const SizedBox(height: 16),
               ],

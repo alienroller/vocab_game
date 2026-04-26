@@ -81,28 +81,50 @@ class AnalyticsService {
     required List<String> classCodes,
     required String teacherId,
   }) async {
-    if (classCodes.isEmpty) return 0;
+    final breakdown = await getTeacherAtRiskBreakdown(
+      classCodes: classCodes,
+      teacherId: teacherId,
+    );
+    return breakdown.values.fold<int>(0, (sum, n) => sum + n);
+  }
+
+  /// Like [getTeacherAtRiskCount], but returns the at-risk count *per class*.
+  /// Lets the dashboard show "X has 1, Y has 3" so the teacher can drill in
+  /// to the actual class with the at-risk student instead of always landing
+  /// on whatever the active class happens to be.
+  ///
+  /// Result map only contains classes that have at least one at-risk
+  /// student — empty entries are omitted to keep the calling UI simple.
+  static Future<Map<String, int>> getTeacherAtRiskBreakdown({
+    required List<String> classCodes,
+    required String teacherId,
+  }) async {
+    if (classCodes.isEmpty) return const <String, int>{};
     final data = await _supabase
         .from('profiles')
-        .select('last_played_date')
+        .select('class_code, last_played_date')
         .inFilter('class_code', classCodes)
         .eq('is_teacher', false)
         .neq('id', teacherId);
 
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
-    int atRisk = 0;
+    final result = <String, int>{};
     for (final row in data as List) {
+      final code = row['class_code'] as String?;
+      if (code == null) continue;
       final lastPlayed = row['last_played_date'] as String?;
+      bool atRisk;
       if (lastPlayed == null) {
-        atRisk++;
-        continue;
+        atRisk = true;
+      } else {
+        final last = DateTime.parse(lastPlayed);
+        final lastOnly = DateTime(last.year, last.month, last.day);
+        atRisk = todayOnly.difference(lastOnly).inDays >= 3;
       }
-      final last = DateTime.parse(lastPlayed);
-      final lastOnly = DateTime(last.year, last.month, last.day);
-      if (todayOnly.difference(lastOnly).inDays >= 3) atRisk++;
+      if (atRisk) result[code] = (result[code] ?? 0) + 1;
     }
-    return atRisk;
+    return result;
   }
 
   /// Fetches word stats aggregated across all students in the class.
