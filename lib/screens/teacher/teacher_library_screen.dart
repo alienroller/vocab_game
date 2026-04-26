@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../models/teacher_class.dart';
 import '../../../providers/assignment_provider.dart';
 import '../../../providers/profile_provider.dart';
+import '../../../providers/teacher_classes_provider.dart';
 import '../../../services/assignment_service.dart';
 import '../../../theme/app_theme.dart';
 
@@ -244,7 +248,11 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
     _loadUnits();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final profile = ref.read(profileProvider);
-      if (profile != null && profile.classCode != null) {
+      if (profile == null) return;
+      // Make sure the teacher's classes are loaded so the assign sheet
+      // can render multi-select even if the teacher landed straight here.
+      ref.read(teacherClassesProvider.notifier).load(profile.id);
+      if (profile.classCode != null) {
         ref.read(assignmentProvider.notifier).loadTeacherAssignments(
           classCode: profile.classCode!,
           teacherId: profile.id,
@@ -272,33 +280,98 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
     }
   }
 
-  Future<void> _assignUnit(Map<String, dynamic> unit) async {
+  Future<void> _openAssignSheet(Map<String, dynamic> unit) async {
     final profile = ref.read(profileProvider);
-    if (profile == null || profile.classCode == null) return;
-
-    if (_assigningUnitId != null) return;
-    setState(() => _assigningUnitId = unit['id'] as String);
-
-    try {
-      await AssignmentService.createAssignment(
-        classCode: profile.classCode!,
-        teacherId: profile.id,
-        bookId: widget.collection['id'],
-        bookTitle: widget.collection['short_title'] ?? '',
-        unitId: unit['id'],
-        unitTitle: unit['title'] ?? '',
-        wordCount: unit['word_count'] ?? 10,
+    if (profile == null) return;
+    final classes = ref.read(teacherClassesProvider).classes;
+    if (classes.isEmpty) {
+      // Fall back: nothing to assign to. This shouldn't happen post-onboarding,
+      // but better than a silent no-op.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Create a class before assigning units.')),
       );
+      return;
+    }
+
+    final unitId = unit['id'] as String;
+    Set<String> alreadyAssigned;
+    try {
+      alreadyAssigned = await AssignmentService.getAssignedClassCodesForUnit(
+        teacherId: profile.id,
+        unitId: unitId,
+      );
+    } catch (_) {
+      alreadyAssigned = const <String>{};
+    }
+    if (!mounted) return;
+
+    final result = await showModalBottomSheet<_AssignResult?>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => _AssignToClassesSheet(
+        classes: classes,
+        activeClassCode: profile.classCode,
+        alreadyAssignedCodes: alreadyAssigned,
+        unitTitle: unit['title']?.toString() ?? 'Unit',
+      ),
+    );
+    if (result == null || result.classCodes.isEmpty) return;
+
+    setState(() => _assigningUnitId = unitId);
+    final failures = <String>[];
+    try {
+      for (final code in result.classCodes) {
+        try {
+          await AssignmentService.createAssignment(
+            classCode: code,
+            teacherId: profile.id,
+            bookId: widget.collection['id'],
+            bookTitle: widget.collection['short_title'] ?? '',
+            unitId: unitId,
+            unitTitle: unit['title'] ?? '',
+            wordCount: unit['word_count'] ?? 10,
+            dueDate: result.dueDate,
+          );
+        } catch (e) {
+          failures.add('$code: $e');
+        }
+      }
 
       if (mounted) {
-        ref.read(assignmentProvider.notifier).loadTeacherAssignments(
-          classCode: profile.classCode!,
-          teacherId: profile.id,
-        );
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assigned successfully!'), backgroundColor: Colors.green));
+        if (profile.classCode != null) {
+          unawaited(
+            ref.read(assignmentProvider.notifier).loadTeacherAssignments(
+              classCode: profile.classCode!,
+              teacherId: profile.id,
+            ),
+          );
+        }
+        final messenger = ScaffoldMessenger.of(context);
+        if (failures.isEmpty) {
+          final n = result.classCodes.length;
+          final dueSuffix = result.dueDate != null
+              ? ' • due ${result.dueDate}'
+              : '';
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                'Assigned to $n class${n == 1 ? '' : 'es'}$dueSuffix',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('Some assignments failed: ${failures.join('; ')}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error assigning unit: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _assigningUnitId = null);
     }
@@ -326,7 +399,12 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
                       final unitId = unit['id'] as String;
                       final total = unit['word_count'] as int? ?? 10;
                       
-                      final isAssigned = assignmentState.assignments.any((a) => a.unitId == unitId && a.isActive);
+                      // "Assigned" badge reflects only the *active* class.
+                      // Multi-class teachers get a fuller view inside the
+                      // assign sheet (shows already-assigned classes greyed).
+                      final isAssignedToActive = assignmentState.assignments
+                          .any((a) => a.unitId == unitId && a.isActive);
+                      final isBusy = _assigningUnitId == unitId;
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -357,20 +435,38 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
                             ),
                             Container(
                               decoration: BoxDecoration(
-                                color: isAssigned ? (isDark ? Colors.grey[800] : Colors.grey[300]) : null,
-                                gradient: isAssigned ? null : AppTheme.primaryGradient,
+                                gradient: AppTheme.primaryGradient,
                                 borderRadius: AppTheme.borderRadiusMd,
                               ),
                               child: FilledButton(
-                                onPressed: isAssigned || _assigningUnitId != null ? null : () => _assignUnit(unit),
+                                onPressed: isBusy
+                                    ? null
+                                    : () => _openAssignSheet(unit),
                                 style: FilledButton.styleFrom(
                                   backgroundColor: Colors.transparent,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  disabledForegroundColor: isAssigned ? (isDark ? Colors.grey[400] : Colors.grey[600]) : Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
                                 ),
-                                child: _assigningUnitId == unit['id']
-                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                    : Text(isAssigned ? 'Assigned ✓' : 'Assign to Class', style: const TextStyle(fontWeight: FontWeight.w700)),
+                                child: isBusy
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Text(
+                                        isAssignedToActive
+                                            ? 'Assigned ✓ • Assign more'
+                                            : 'Assign',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                        ),
+                                      ),
                               ),
                             ),
                           ],
@@ -378,6 +474,210 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
                       );
                     },
                   ),
+      ),
+    );
+  }
+}
+
+/// Result returned by [_AssignToClassesSheet] when the teacher confirms.
+class _AssignResult {
+  final List<String> classCodes;
+  final String? dueDate; // ISO YYYY-MM-DD or null
+
+  const _AssignResult({required this.classCodes, this.dueDate});
+}
+
+/// Bottom sheet that lets a teacher pick *which* classes to assign a unit
+/// to (multi-select) and an optional due date. Classes that already have
+/// an active assignment for this unit are pre-checked and disabled so the
+/// teacher can see they are covered without re-assigning.
+class _AssignToClassesSheet extends StatefulWidget {
+  final List<TeacherClass> classes;
+  final String? activeClassCode;
+  final Set<String> alreadyAssignedCodes;
+  final String unitTitle;
+
+  const _AssignToClassesSheet({
+    required this.classes,
+    required this.activeClassCode,
+    required this.alreadyAssignedCodes,
+    required this.unitTitle,
+  });
+
+  @override
+  State<_AssignToClassesSheet> createState() => _AssignToClassesSheetState();
+}
+
+class _AssignToClassesSheetState extends State<_AssignToClassesSheet> {
+  late final Set<String> _selected;
+  DateTime? _dueDate;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default selection: the active class, if it isn't already assigned.
+    _selected = <String>{};
+    final active = widget.activeClassCode;
+    if (active != null &&
+        !widget.alreadyAssignedCodes.contains(active) &&
+        widget.classes.any((c) => c.code == active)) {
+      _selected.add(active);
+    }
+  }
+
+  Future<void> _pickDueDate() async {
+    final today = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate ?? today.add(const Duration(days: 7)),
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _dueDate = picked);
+  }
+
+  String? _formattedDueDate() {
+    if (_dueDate == null) return null;
+    final y = _dueDate!.year.toString().padLeft(4, '0');
+    final m = _dueDate!.month.toString().padLeft(2, '0');
+    final d = _dueDate!.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit = _selected.isNotEmpty;
+    final dueText = _formattedDueDate() ?? 'No deadline';
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        left: 20,
+        right: 20,
+        top: 16,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 4),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Assign "${widget.unitTitle}"',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Pick which classes get this unit.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: widget.classes.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (ctx, i) {
+                  final c = widget.classes[i];
+                  final alreadyAssigned =
+                      widget.alreadyAssignedCodes.contains(c.code);
+                  final checked =
+                      alreadyAssigned || _selected.contains(c.code);
+                  return CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    value: checked,
+                    onChanged: alreadyAssigned
+                        ? null
+                        : (v) => setState(() {
+                              if (v == true) {
+                                _selected.add(c.code);
+                              } else {
+                                _selected.remove(c.code);
+                              }
+                            }),
+                    title: Text(
+                      c.className.isEmpty ? c.code : c.className,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      alreadyAssigned
+                          ? 'Already assigned • ${c.studentCount} student'
+                            '${c.studentCount == 1 ? '' : 's'}'
+                          : '${c.code} • ${c.studentCount} student'
+                            '${c.studentCount == 1 ? '' : 's'}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_outlined),
+              title: const Text('Due date'),
+              subtitle: Text(dueText, style: const TextStyle(fontSize: 12)),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_dueDate != null)
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Clear due date',
+                      onPressed: () => setState(() => _dueDate = null),
+                    ),
+                  TextButton(
+                    onPressed: _pickDueDate,
+                    child: Text(_dueDate == null ? 'Set date' : 'Change'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: canSubmit
+                      ? () => Navigator.pop(
+                            context,
+                            _AssignResult(
+                              classCodes: _selected.toList(),
+                              dueDate: _formattedDueDate(),
+                            ),
+                          )
+                      : null,
+                  child: Text(
+                    canSubmit
+                        ? 'Assign to ${_selected.length}'
+                        : 'Pick classes',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
   }
