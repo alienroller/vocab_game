@@ -183,7 +183,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Failed to save message. Try again.'),
+                              content: Text('Failed to save message: $e'),
                               backgroundColor: Colors.red,
                             ),
                           );
