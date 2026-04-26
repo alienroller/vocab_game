@@ -1,0 +1,86 @@
+name: Android Release Build
+
+on:
+  pull_request:
+    branches:
+      - release
+
+env:
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  CHAT_ID: ${{ secrets.CHAT_ID }}
+
+jobs:
+  build_android:
+    name: Build Android AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Create key.properties
+        run: |
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}"              > android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}"       >> android/key.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}"   >> android/key.properties
+          echo "storeFile=keystore.jks"                        >> android/key.properties
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+
+      - name: Run Build Runner
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          echo "Build Runner finished"
+
+      - name: Build Android AAB
+        run: |
+          flutter build appbundle --release \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+      - name: Get version from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //;s/+.*//')
+          echo "name=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload AAB to Telegram
+        run: |
+          VERSION="${{ steps.version.outputs.name }}"
+          COMMENT=$(git log -1 --pretty=%B)
+          AAB_SRC="build/app/outputs/bundle/release/app-release.aab"
+          AAB_DST="build/app/outputs/bundle/release/vocab_game-${VERSION}.aab"
+          mv "$AAB_SRC" "$AAB_DST"
+          curl -F "document=@${AAB_DST}" \
+               -F "chat_id=${CHAT_ID}" \
+               -F "caption=🤖 Android AAB ${VERSION}
+          ${COMMENT}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"

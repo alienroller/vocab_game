@@ -204,7 +204,7 @@ class ProfileScreen extends ConsumerWidget {
             _SectionHeader(title: 'Class'),
             const SizedBox(height: 8),
             _ClassManagementSection(
-              profile: profile!,
+              profile: profile,
               hasClass: classCode != null && classCode.isNotEmpty,
               classCode: classCode,
             ),
