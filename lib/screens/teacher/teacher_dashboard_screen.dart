@@ -360,65 +360,56 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 const SizedBox(height: 16),
               ],
 
-              // 1. Class Health Card
-              if (classesState.healthScore != null) ...[
-                GestureDetector(
-                  onTap: () => context.push('/teacher/analytics'),
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: _getColorForTier(classesState.healthScore!.colorTier).withValues(alpha: isDark ? 0.2 : 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _getColorForTier(classesState.healthScore!.colorTier).withValues(alpha: 0.5)),
+              // 1. At-Risk Section — most-actionable item, shown first.
+              if (classesState.students.isNotEmpty && classesState.healthScore != null) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('⚠️ At Risk — ${classesState.healthScore!.atRiskCount} students', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange)),
+                    if (classesState.healthScore!.atRiskCount > 5)
+                      TextButton(
+                        onPressed: () => context.push('/teacher/analytics'),
+                        child: const Text('View all →'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (classesState.healthScore!.atRiskCount == 0)
+                  const Text('✅ All students practiced recently', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+                else
+                  ...classesState.students.where((s) => s.isAtRisk).take(5).map((student) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: AppTheme.glassCard(isDark: isDark),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.red.withValues(alpha: 0.1),
+                        child: Text(student.username.isNotEmpty ? student.username[0].toUpperCase() : '?', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                      ),
+                      title: Text(student.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(student.lastPlayedDate == null ? 'Never played' : 'Last active: ${student.daysSinceActive} days ago', style: const TextStyle(color: Colors.red)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/teacher/student-detail', extra: student),
                     ),
-                    child: Column(
+                  )),
+                const SizedBox(height: 24),
+              ] else if (classesState.students.isNotEmpty && classesState.healthScore == null) ...[
+                Container(
+                  decoration: AppTheme.glassCard(isDark: isDark),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                       children: [
-                        const Text('Class Health', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${classesState.healthScore!.score.round()}',
-                          style: TextStyle(
-                            fontSize: 56,
-                            fontWeight: FontWeight.bold,
-                            color: _getColorForTier(classesState.healthScore!.colorTier),
-                            height: 1,
-                          ),
-                        ),
-                        Text(
-                          classesState.healthScore!.label,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: _getColorForTier(classesState.healthScore!.colorTier),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Column(
-                              children: [
-                                Text('${(classesState.healthScore!.avgAccuracy * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const Text('Avg Accuracy', style: TextStyle(fontSize: 12)),
-                              ],
-                            ),
-                            Container(width: 1, height: 30, color: Colors.grey.withValues(alpha: 0.3)),
-                            Column(
-                              children: [
-                                Text('${classesState.healthScore!.activeStudentsThisWeek}/${classesState.healthScore!.totalStudents}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const Text('Active (7d)', style: TextStyle(fontSize: 12)),
-                              ],
-                            ),
-                          ],
-                        ),
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                        const SizedBox(width: 12),
+                        const Text('Health score unavailable — pull to refresh'),
                       ],
                     ),
-                  ),
                 ),
                 const SizedBox(height: 24),
               ],
 
-              // 2. Teacher Message Card
+              // 2. Teacher Message Card — composer, lower priority than
+              //    intervening with at-risk students.
               Container(
                 decoration: AppTheme.glassCard(isDark: isDark),
                 child: Material(
@@ -460,68 +451,11 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-
-              // 3. At-Risk Section
-              if (classesState.students.isNotEmpty && classesState.healthScore != null) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('⚠️ At Risk — ${classesState.healthScore!.atRiskCount} students', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange)),
-                    if (classesState.healthScore!.atRiskCount > 5)
-                      TextButton(
-                        onPressed: () => context.push('/teacher/analytics'),
-                        child: const Text('View all →'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (classesState.healthScore!.atRiskCount == 0)
-                  const Text('✅ All students practiced recently', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
-                else
-                  ...classesState.students.where((s) => s.isAtRisk).take(5).map((student) => Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: AppTheme.glassCard(isDark: isDark),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.red.withValues(alpha: 0.1),
-                        child: Text(student.username.isNotEmpty ? student.username[0].toUpperCase() : '?', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                      ),
-                      title: Text(student.username, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(student.lastPlayedDate == null ? 'Never played' : 'Last active: ${student.daysSinceActive} days ago', style: const TextStyle(color: Colors.red)),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push('/teacher/student-detail', extra: student),
-                    ),
-                  )),
-              ] else if (classesState.students.isNotEmpty && classesState.healthScore == null) ...[
-                Container(
-                  decoration: AppTheme.glassCard(isDark: isDark),
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                        const SizedBox(width: 12),
-                        const Text('Health score unavailable — pull to refresh'),
-                      ],
-                    ),
-                ),
-              ],
             ],
           ),
         ),
       ),
     ));
-  }
-
-  Color _getColorForTier(String tier) {
-    switch (tier) {
-      case 'green': return Colors.green;
-      case 'amber': return Colors.orangeAccent;
-      case 'orange': return Colors.orange;
-      case 'red': return Colors.red;
-      default: return Colors.grey;
-    }
   }
 
   TeacherClass? _findActiveClass(List<TeacherClass> classes, String? code) {

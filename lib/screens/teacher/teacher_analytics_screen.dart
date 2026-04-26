@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/assignment_provider.dart';
+import '../../../providers/class_students_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/teacher_classes_provider.dart';
 import '../../../providers/word_stats_provider.dart';
 import '../../../services/assignment_service.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/class_health_card.dart';
 
 class TeacherAnalyticsScreen extends ConsumerStatefulWidget {
   const TeacherAnalyticsScreen({super.key});
@@ -55,6 +57,12 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
 
     setState(() => _loading = true);
 
+    // Refresh students/health for the active class so the Class Health card
+    // is current. classStudentsProvider is shared with Dashboard / My Classes.
+    await ref.read(classStudentsProvider.notifier).load(
+      classCode: profile.classCode!,
+      teacherId: profile.id,
+    );
     await ref.read(assignmentProvider.notifier).loadTeacherAssignments(classCode: profile.classCode!, teacherId: profile.id);
     await _loadWordStats();
 
@@ -90,6 +98,7 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
     final assignmentState = ref.watch(assignmentProvider);
     final statsState = ref.watch(wordStatsProvider);
     final teacherClasses = ref.watch(teacherClassesProvider).classes;
+    final classesState = ref.watch(classStudentsProvider);
     final showScopeToggle = teacherClasses.length >= 2;
 
     return Scaffold(
@@ -102,6 +111,13 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (classesState.healthScore != null) ...[
+                ClassHealthCard(
+                  score: classesState.healthScore!,
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 24),
+              ],
               const Text('Assigned Units', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               if (_loading && assignmentState.assignments.isEmpty)
