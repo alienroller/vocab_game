@@ -91,7 +91,6 @@ final _teacherDashboardNavKey = GlobalKey<NavigatorState>(debugLabel: 't_dash');
 final _teacherClassesNavKey = GlobalKey<NavigatorState>(debugLabel: 't_class');
 final _teacherLibraryNavKey = GlobalKey<NavigatorState>(debugLabel: 't_lib');
 final _teacherAnalyticsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_analytics');
-final _teacherProfileNavKey = GlobalKey<NavigatorState>(debugLabel: 't_profile');
 final _teacherExamsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_exams');
 
 /// Centralized router — all navigation goes through named routes.
@@ -609,16 +608,16 @@ final GoRouter appRouter = GoRouter(
             ),
           ],
         ),
-        StatefulShellBranch(
-          navigatorKey: _teacherProfileNavKey,
-          routes: [
-            GoRoute(
-              path: '/teacher/profile',
-              pageBuilder: (_, state) => _buildPage(const TeacherProfileScreen(), state),
-            ),
-          ],
-        ),
       ],
+    ),
+    // Profile sits outside the bottom-nav shell so it pushes over the
+    // current tab instead of taking up a slot. Reached from the avatar
+    // icon in the Dashboard app bar.
+    GoRoute(
+      path: '/teacher/profile',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const TeacherProfileScreen(), state),
     ),
     GoRoute(
       path: '/teacher/student-detail',

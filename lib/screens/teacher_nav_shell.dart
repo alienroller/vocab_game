@@ -120,13 +120,6 @@ class _TeacherNavShellState extends ConsumerState<TeacherNavShell> {
                     isActive: widget.navigationShell.currentIndex == 4,
                     onTap: () => _onTap(4),
                   ),
-                  _NavItem(
-                    icon: Icons.person_outline_rounded,
-                    activeIcon: Icons.person_rounded,
-                    label: 'Profile',
-                    isActive: widget.navigationShell.currentIndex == 5,
-                    onTap: () => _onTap(5),
-                  ),
                 ],
               ),
             ),

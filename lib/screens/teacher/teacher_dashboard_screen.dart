@@ -324,11 +324,34 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
+            tooltip: 'Share class code',
             onPressed: () {
               if (profile.classCode != null) {
                 Share.share('Join my class on VocabGame! Code: ${profile.classCode}');
               }
             },
+          ),
+          // Profile is no longer a bottom-nav tab — reach it from here.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: IconButton(
+              tooltip: 'Profile',
+              onPressed: () => context.push('/teacher/profile'),
+              icon: CircleAvatar(
+                radius: 14,
+                backgroundColor: AppTheme.violet.withValues(alpha: 0.15),
+                child: Text(
+                  profile.username.isNotEmpty
+                      ? profile.username[0].toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                    color: AppTheme.violet,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
