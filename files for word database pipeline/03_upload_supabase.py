@@ -23,8 +23,8 @@ import urllib.request
 import urllib.error
 
 # ── Config — fill these in ────────────────────────────────────────────────────
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qlfupxbxbevnljrgawrn.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFsZnVweGJ4YmV2bmxqcmdhd3JuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDg1NzEwOSwiZXhwIjoyMDkwNDMzMTA5fQ.aJqgStz4OZWdWQp5NDxvljziqc3fWGvu9Zxkb1EFnZI")   # use service role key for bulk insert
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")   # use service role key for bulk insert
 TABLE_NAME   = "dictionary_words"
 
 CLEAN_FILE  = Path("oxford_enriched.json")

@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/assignment.dart';
 import '../models/assignment_progress.dart';
 import '../services/assignment_service.dart';
-import 'profile_provider.dart';
 
 // State: holds both the assignment list and the student's progress map
 class AssignmentState {

@@ -153,8 +153,8 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
           final elapsed =
               DateTime.now().difference(_questionStartTime).inSeconds;
           final secondsLeft = max(0, 20 - elapsed);
-          final streakDays = Hive.box('userProfile')
-              .get('streakDays', defaultValue: 0) as int;
+          final streakDays =
+              Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
           xp = XpService.calculateXp(
             correct: true,
             secondsLeft: secondsLeft,
@@ -195,11 +195,13 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
           );
         }
 
-        await ref.read(profileProvider.notifier).recordGameSession(
-          xpGained: bankedXp,
-          totalQuestions: _gameVocab.length,
-          correctAnswers: _score,
-        );
+        await ref
+            .read(profileProvider.notifier)
+            .recordGameSession(
+              xpGained: bankedXp,
+              totalQuestions: _gameVocab.length,
+              correctAnswers: _score,
+            );
 
         if (widget.assignmentId != null) {
           final profileBox = Hive.box('userProfile');
@@ -213,10 +215,12 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
                 classCode: classCode,
                 wordsMasteredDelta: _score,
               );
-              ref.read(assignmentProvider.notifier).loadStudentAssignments(
-                classCode: classCode,
-                studentId: studentId,
-              );
+              ref
+                  .read(assignmentProvider.notifier)
+                  .loadStudentAssignments(
+                    classCode: classCode,
+                    studentId: studentId,
+                  );
             } catch (e, s) {
               debugPrint('Assignment progress update failed: $e\n$s');
             }
@@ -224,18 +228,21 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
         }
 
         if (mounted) {
-          context.pushReplacement('/result', extra: {
-            'score': _score,
-            'total': _gameVocab.length,
-            'gameName': 'Fill in the Blank',
-            'gameRoute': '/games/fill-blank',
-            'runXp': _totalXp,
-            'bankedXp': bankedXp,
-            'previousBest': previousBest,
-            'unitId': widget.unitId,
-            'customWords': widget.customWords,
-            'assignmentId': widget.assignmentId,
-          });
+          context.pushReplacement(
+            '/result',
+            extra: {
+              'score': _score,
+              'total': _gameVocab.length,
+              'gameName': 'Fill in the Blank',
+              'gameRoute': '/games/fill-blank',
+              'runXp': _totalXp,
+              'bankedXp': bankedXp,
+              'previousBest': previousBest,
+              'unitId': widget.unitId,
+              'customWords': widget.customWords,
+              'assignmentId': widget.assignmentId,
+            },
+          );
         }
       }
     });
@@ -244,8 +251,7 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
   @override
   Widget build(BuildContext context) {
     if (_gameVocab.isEmpty) {
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final theme = Theme.of(context);
@@ -263,328 +269,348 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
       },
       child: Scaffold(
         extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Fill in the Blank'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Center(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppTheme.violet.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Score: $_score',
-                  style: const TextStyle(
+        appBar: AppBar(
+          title: const Text('Fill in the Blank'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.violet.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Score: $_score',
+                    style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.violet),
+                      color: AppTheme.violet,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient:
-              isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+          ],
         ),
-        child: Stack(
-          children: [
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Progress bar
-                    Container(
-                      height: 6,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(3),
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.black.withValues(alpha: 0.04),
-                      ),
-                      child: FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor:
-                            (_currentIndex + 1) / _gameVocab.length,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(3),
-                            gradient: AppTheme.primaryGradient,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient:
+                isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+          ),
+          child: Stack(
+            children: [
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Progress bar
+                      Container(
+                        height: 6,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(3),
+                          color:
+                              isDark
+                                  ? Colors.white.withValues(alpha: 0.06)
+                                  : Colors.black.withValues(alpha: 0.04),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: (_currentIndex + 1) / _gameVocab.length,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(3),
+                              gradient: AppTheme.primaryGradient,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Word ${_currentIndex + 1} of ${_gameVocab.length}',
-                      style: TextStyle(
-                        color: isDark
-                            ? AppTheme.textSecondaryDark
-                            : AppTheme.textSecondaryLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // English Prompt — Glass Card
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 32, horizontal: 24),
-                      decoration: AppTheme.glassCard(isDark: isDark),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Translate this word:',
-                            style: TextStyle(
-                              color: isDark
+                      const SizedBox(height: 12),
+                      Text(
+                        'Word ${_currentIndex + 1} of ${_gameVocab.length}',
+                        style: TextStyle(
+                          color:
+                              isDark
                                   ? AppTheme.textSecondaryDark
                                   : AppTheme.textSecondaryLight,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Text('🇬🇧',
-                                  style: TextStyle(fontSize: 20)),
-                              const SizedBox(width: 10),
-                              Flexible(
-                                child: Text(
-                                  currentWord.english,
-                                  style:
-                                      theme.textTheme.displaySmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Clue Display — Glass Letter Slots
-                    Center(
-                      child: Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 6,
-                        runSpacing: 12,
-                        children: List.generate(_displayChars.length,
-                            (index) {
-                          final char = _displayChars[index];
-                          final isBlank = _isBlanked[index];
-
-                          // Don't draw boxes for spaces
-                          if (char == ' ') {
-                            return const SizedBox(width: 12, height: 52);
-                          }
-
-                          // Determine slot color based on state
-                          Color slotBg;
-                          Color slotBorder;
-                          Color textColor;
-
-                          if (_answered && isBlank) {
-                            if (_isCorrect) {
-                              slotBg = AppTheme.success
-                                  .withValues(alpha: isDark ? 0.15 : 0.1);
-                              slotBorder = AppTheme.success;
-                              textColor = AppTheme.success;
-                            } else {
-                              slotBg = AppTheme.error
-                                  .withValues(alpha: isDark ? 0.15 : 0.1);
-                              slotBorder = AppTheme.error;
-                              textColor = AppTheme.error;
-                            }
-                          } else if (isBlank) {
-                            slotBg = AppTheme.violet
-                                .withValues(alpha: isDark ? 0.1 : 0.06);
-                            slotBorder = AppTheme.violet
-                                .withValues(alpha: 0.3);
-                            textColor = AppTheme.violet;
-                          } else {
-                            slotBg = isDark
-                                ? Colors.white.withValues(alpha: 0.04)
-                                : Colors.black.withValues(alpha: 0.03);
-                            slotBorder = isDark
-                                ? Colors.white.withValues(alpha: 0.08)
-                                : Colors.black.withValues(alpha: 0.06);
-                            textColor = isDark
-                                ? Colors.white
-                                : const Color(0xFF1A1D3A);
-                          }
-
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            width: 38,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              color: slotBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border:
-                                  Border.all(color: slotBorder, width: 1.5),
-                              boxShadow: isBlank && !_answered
-                                  ? [
-                                      BoxShadow(
-                                        color: AppTheme.violet
-                                            .withValues(alpha: 0.1),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              isBlank
-                                  ? (_answered ? char : '?')
-                                  : char,
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: textColor,
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Input Field — Styled glass
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: AppTheme.borderRadiusMd,
-                        boxShadow: AppTheme.shadowSoft,
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        decoration: InputDecoration(
-                          hintText: 'Type the full Uzbek word...',
-                          prefixIcon: const Padding(
-                            padding: EdgeInsets.only(left: 12, right: 8),
-                            child: Text('🇺🇿',
-                                style: TextStyle(fontSize: 18)),
-                          ),
-                          prefixIconConstraints: const BoxConstraints(
-                              minWidth: 0, minHeight: 0),
-                          suffixIcon: Container(
-                            margin: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.primaryGradient,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: IconButton(
-                              icon: const Icon(Icons.send_rounded,
-                                  color: Colors.white, size: 20),
-                              onPressed: _checkAnswer,
-                            ),
-                          ),
-                        ),
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _checkAnswer(),
-                        enabled: !_answered,
-                        autocorrect: false,
-                        style: const TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 16,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
+                      const SizedBox(height: 24),
 
-                    const SizedBox(height: 16),
-
-                    // Feedback
-                    if (_answered)
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              (_isCorrect
-                                      ? AppTheme.success
-                                      : AppTheme.error)
-                                  .withValues(
-                                      alpha: isDark ? 0.15 : 0.1),
-                              (_isCorrect
-                                      ? AppTheme.success
-                                      : AppTheme.error)
-                                  .withValues(
-                                      alpha: isDark ? 0.05 : 0.03),
-                            ],
-                          ),
-                          borderRadius: AppTheme.borderRadiusMd,
-                          border: Border.all(
-                            color: (_isCorrect
-                                    ? AppTheme.success
-                                    : AppTheme.error)
-                                .withValues(alpha: 0.25),
-                          ),
+                      // English Prompt — Glass Card
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 32,
+                          horizontal: 24,
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        decoration: AppTheme.glassCard(isDark: isDark),
+                        child: Column(
                           children: [
-                            Icon(
-                              _isCorrect
-                                  ? Icons.check_circle_rounded
-                                  : Icons.cancel_rounded,
-                              color: _isCorrect
-                                  ? AppTheme.success
-                                  : AppTheme.error,
-                            ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Text(
-                                _isCorrect
-                                    ? 'Correct! 🎉'
-                                    : 'The word was: $_targetWord',
-                                style: TextStyle(
-                                  color: _isCorrect
-                                      ? AppTheme.success
-                                      : AppTheme.error,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15,
-                                ),
+                            Text(
+                              'Translate this word:',
+                              style: TextStyle(
+                                color:
+                                    isDark
+                                        ? AppTheme.textSecondaryDark
+                                        : AppTheme.textSecondaryLight,
+                                fontWeight: FontWeight.w500,
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  '🇬🇧',
+                                  style: TextStyle(fontSize: 20),
+                                ),
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(
+                                    currentWord.english,
+                                    style: theme.textTheme.displaySmall
+                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
-                  ],
-                ),
-              ),
-            ),
-            // XP float animation overlay
-            if (_showXpFloat)
-              Positioned(
-                top: MediaQuery.of(context).size.height * 0.3,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: XpFloatWidget(
-                    key: ValueKey('xp_fill_$_currentIndex$_lastXpGain'),
-                    xp: _lastXpGain,
+                      const SizedBox(height: 32),
+
+                      // Clue Display — Glass Letter Slots
+                      Center(
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 6,
+                          runSpacing: 12,
+                          children: List.generate(_displayChars.length, (
+                            index,
+                          ) {
+                            final char = _displayChars[index];
+                            final isBlank = _isBlanked[index];
+
+                            // Don't draw boxes for spaces
+                            if (char == ' ') {
+                              return const SizedBox(width: 12, height: 52);
+                            }
+
+                            // Determine slot color based on state
+                            Color slotBg;
+                            Color slotBorder;
+                            Color textColor;
+
+                            if (_answered && isBlank) {
+                              if (_isCorrect) {
+                                slotBg = AppTheme.success.withValues(
+                                  alpha: isDark ? 0.15 : 0.1,
+                                );
+                                slotBorder = AppTheme.success;
+                                textColor = AppTheme.success;
+                              } else {
+                                slotBg = AppTheme.error.withValues(
+                                  alpha: isDark ? 0.15 : 0.1,
+                                );
+                                slotBorder = AppTheme.error;
+                                textColor = AppTheme.error;
+                              }
+                            } else if (isBlank) {
+                              slotBg = AppTheme.violet.withValues(
+                                alpha: isDark ? 0.1 : 0.06,
+                              );
+                              slotBorder = AppTheme.violet.withValues(
+                                alpha: 0.3,
+                              );
+                              textColor = AppTheme.violet;
+                            } else {
+                              slotBg =
+                                  isDark
+                                      ? Colors.white.withValues(alpha: 0.04)
+                                      : Colors.black.withValues(alpha: 0.03);
+                              slotBorder =
+                                  isDark
+                                      ? Colors.white.withValues(alpha: 0.08)
+                                      : Colors.black.withValues(alpha: 0.06);
+                              textColor =
+                                  isDark
+                                      ? Colors.white
+                                      : const Color(0xFF1A1D3A);
+                            }
+
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              width: 38,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: slotBg,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: slotBorder,
+                                  width: 1.5,
+                                ),
+                                boxShadow:
+                                    isBlank && !_answered
+                                        ? [
+                                          BoxShadow(
+                                            color: AppTheme.violet.withValues(
+                                              alpha: 0.1,
+                                            ),
+                                            blurRadius: 6,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                        : null,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                isBlank ? (_answered ? char : '?') : char,
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: textColor,
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+
+                      const SizedBox(height: 32),
+
+                      // Input Field — Styled glass
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: AppTheme.borderRadiusMd,
+                          boxShadow: AppTheme.shadowSoft,
+                        ),
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          decoration: InputDecoration(
+                            hintText: 'Type the full Uzbek word...',
+                            prefixIcon: const Padding(
+                              padding: EdgeInsets.only(left: 12, right: 8),
+                              child: Text(
+                                '🇺🇿',
+                                style: TextStyle(fontSize: 18),
+                              ),
+                            ),
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 0,
+                              minHeight: 0,
+                            ),
+                            suffixIcon: Container(
+                              margin: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                gradient: AppTheme.primaryGradient,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: IconButton(
+                                icon: const Icon(
+                                  Icons.send_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                onPressed: _checkAnswer,
+                              ),
+                            ),
+                          ),
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _checkAnswer(),
+                          enabled: !_answered,
+                          autocorrect: false,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Feedback
+                      if (_answered)
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                (_isCorrect ? AppTheme.success : AppTheme.error)
+                                    .withValues(alpha: isDark ? 0.15 : 0.1),
+                                (_isCorrect ? AppTheme.success : AppTheme.error)
+                                    .withValues(alpha: isDark ? 0.05 : 0.03),
+                              ],
+                            ),
+                            borderRadius: AppTheme.borderRadiusMd,
+                            border: Border.all(
+                              color: (_isCorrect
+                                      ? AppTheme.success
+                                      : AppTheme.error)
+                                  .withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _isCorrect
+                                    ? Icons.check_circle_rounded
+                                    : Icons.cancel_rounded,
+                                color:
+                                    _isCorrect
+                                        ? AppTheme.success
+                                        : AppTheme.error,
+                              ),
+                              const SizedBox(width: 10),
+                              Flexible(
+                                child: Text(
+                                  _isCorrect
+                                      ? 'Correct! 🎉'
+                                      : 'The word was: $_targetWord',
+                                  style: TextStyle(
+                                    color:
+                                        _isCorrect
+                                            ? AppTheme.success
+                                            : AppTheme.error,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
-          ],
+              // XP float animation overlay
+              if (_showXpFloat)
+                Positioned(
+                  top: MediaQuery.of(context).size.height * 0.3,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: XpFloatWidget(
+                      key: ValueKey('xp_fill_$_currentIndex$_lastXpGain'),
+                      xp: _lastXpGain,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

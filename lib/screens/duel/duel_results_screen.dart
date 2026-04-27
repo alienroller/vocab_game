@@ -29,7 +29,6 @@ class DuelResultsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     final String title;
     final String emoji;
     final Color accentColor;
@@ -39,7 +38,7 @@ class DuelResultsScreen extends StatelessWidget {
       emoji = '🤝';
       accentColor = Colors.orange;
     } else if (didWin) {
-      title = 'You Won!';
+      title = 'You Won! You Finished him/her!';
       emoji = '🏆';
       accentColor = Colors.green;
     } else {
