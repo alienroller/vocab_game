@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../services/streak_calculator.dart';
 import '../theme/app_theme.dart';
 
-/// Premium streak display with gradient background and smooth animations.
+/// Premium streak display with three visual states:
+/// - **completedToday** — vibrant orange flame, pulsing animation.
+/// - **atRisk** — amber flame, slow pulse, prompts the user to play today.
+/// - **broken** — muted grey, no animation. Shows the longest-streak record
+///   so the user still has something to chase.
 class StreakWidget extends StatefulWidget {
-  final int streakDays;
+  /// Live snapshot from `streakProvider` — the only thing this widget reads.
+  final StreakSnapshot snapshot;
 
-  const StreakWidget({super.key, required this.streakDays});
+  const StreakWidget({super.key, required this.snapshot});
 
   @override
   State<StreakWidget> createState() => _StreakWidgetState();
@@ -27,18 +33,22 @@ class _StreakWidgetState extends State<StreakWidget>
     _scaleAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
-
-    if (widget.streakDays > 0) {
-      _controller.repeat(reverse: true);
-    }
+    _syncAnimation();
   }
 
   @override
   void didUpdateWidget(StreakWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.streakDays > 0 && !_controller.isAnimating) {
+    if (widget.snapshot.status != oldWidget.snapshot.status) {
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation() {
+    final shouldAnimate = widget.snapshot.status != StreakStatus.broken;
+    if (shouldAnimate && !_controller.isAnimating) {
       _controller.repeat(reverse: true);
-    } else if (widget.streakDays == 0 && _controller.isAnimating) {
+    } else if (!shouldAnimate && _controller.isAnimating) {
       _controller.stop();
       _controller.reset();
     }
@@ -48,66 +58,77 @@ class _StreakWidgetState extends State<StreakWidget>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isActive = widget.streakDays > 0;
+    final status = widget.snapshot.status;
+
+    // Broken: show the user's longest streak as a "personal best" badge,
+    // not their dead current streak.
+    final isBroken = status == StreakStatus.broken;
+    final count = isBroken ? widget.snapshot.longest : widget.snapshot.displayCount;
+    final showLongestLabel = isBroken && widget.snapshot.longest > 0;
+
+    final accent = switch (status) {
+      StreakStatus.completedToday => AppTheme.fire,
+      StreakStatus.atRisk => AppTheme.amber,
+      StreakStatus.broken => isDark
+          ? AppTheme.textSecondaryDark
+          : AppTheme.textSecondaryLight,
+    };
+
+    final emoji = switch (status) {
+      StreakStatus.completedToday => '🔥',
+      StreakStatus.atRisk => '🔥',
+      StreakStatus.broken => '💤',
+    };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        gradient: isActive
+        gradient: !isBroken
             ? LinearGradient(
                 colors: [
-                  AppTheme.fire.withValues(alpha: isDark ? 0.2 : 0.12),
+                  accent.withValues(alpha: isDark ? 0.2 : 0.12),
                   AppTheme.amber.withValues(alpha: isDark ? 0.15 : 0.08),
                 ],
               )
             : null,
-        color: isActive
-            ? null
-            : (isDark
+        color: isBroken
+            ? (isDark
                 ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.04)),
+                : Colors.black.withValues(alpha: 0.04))
+            : null,
         borderRadius: BorderRadius.circular(24),
-        border: isActive
-            ? Border.all(
-                color: AppTheme.fire.withValues(alpha: isDark ? 0.3 : 0.2))
+        border: !isBroken
+            ? Border.all(color: accent.withValues(alpha: isDark ? 0.3 : 0.2))
             : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           ScaleTransition(
-            scale: isActive
+            scale: !isBroken
                 ? _scaleAnimation
                 : const AlwaysStoppedAnimation(1.0),
             child: Text(
-              '🔥',
-              style: TextStyle(fontSize: isActive ? 20 : 16),
+              emoji,
+              style: TextStyle(fontSize: !isBroken ? 20 : 16),
             ),
           ),
           const SizedBox(width: 6),
           Text(
-            '${widget.streakDays}',
+            '$count',
             style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 17,
-              color: isActive
-                  ? AppTheme.fire
-                  : (isDark
-                      ? AppTheme.textSecondaryDark
-                      : AppTheme.textSecondaryLight),
+              color: accent,
             ),
           ),
           const SizedBox(width: 3),
           Text(
-            widget.streakDays == 1 ? 'day' : 'days',
+            showLongestLabel ? 'best' : (count == 1 ? 'day' : 'days'),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isActive
-                  ? AppTheme.fire.withValues(alpha: 0.8)
-                  : (isDark
-                      ? AppTheme.textSecondaryDark
-                      : AppTheme.textSecondaryLight),
+              color: accent.withValues(alpha: 0.8),
             ),
           ),
         ],

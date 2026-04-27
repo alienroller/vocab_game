@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../providers/profile_provider.dart';
+import '../providers/streak_provider.dart';
 import '../services/class_service.dart';
 import '../services/sync_service.dart';
 import '../services/xp_service.dart';
@@ -31,8 +32,7 @@ class ProfileScreen extends ConsumerWidget {
     final xp = profile?.xp ?? profileBox.get('xp', defaultValue: 0) as int;
     final level =
         profile?.level ?? profileBox.get('level', defaultValue: 1) as int;
-    final streakDays =
-        profile?.streakDays ?? profileBox.get('streakDays', defaultValue: 0) as int;
+    final streak = ref.watch(streakProvider);
     final classCode = profile?.classCode ?? profileBox.get('classCode') as String?;
     final totalAnswered = profile?.totalWordsAnswered ??
         profileBox.get('totalWordsAnswered', defaultValue: 0) as int;
@@ -123,7 +123,17 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: 24),
 
             // ─── Streak ─────────────────────────────────────────
-            StreakWidget(streakDays: streakDays),
+            StreakWidget(snapshot: streak),
+            if (streak.longest > streak.displayCount) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Personal best: ${streak.longest} days',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
 
             // ─── Stats Cards ────────────────────────────────────
@@ -194,7 +204,7 @@ class ProfileScreen extends ConsumerWidget {
             _SectionHeader(title: 'Class'),
             const SizedBox(height: 8),
             _ClassManagementSection(
-              profile: profile!,
+              profile: profile,
               hasClass: classCode != null && classCode.isNotEmpty,
               classCode: classCode,
             ),

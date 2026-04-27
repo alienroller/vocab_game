@@ -73,6 +73,60 @@ class AnalyticsService {
     );
   }
 
+  /// Counts students flagged as "at-risk" (never played OR last played ≥ 3
+  /// days ago) across every class in [classCodes]. Mirrors the client-side
+  /// [ClassStudent.isAtRisk] rule so numbers agree with the per-class view.
+  /// Excludes the teacher row itself via both [is_teacher] and [teacherId].
+  static Future<int> getTeacherAtRiskCount({
+    required List<String> classCodes,
+    required String teacherId,
+  }) async {
+    final breakdown = await getTeacherAtRiskBreakdown(
+      classCodes: classCodes,
+      teacherId: teacherId,
+    );
+    return breakdown.values.fold<int>(0, (sum, n) => sum + n);
+  }
+
+  /// Like [getTeacherAtRiskCount], but returns the at-risk count *per class*.
+  /// Lets the dashboard show "X has 1, Y has 3" so the teacher can drill in
+  /// to the actual class with the at-risk student instead of always landing
+  /// on whatever the active class happens to be.
+  ///
+  /// Result map only contains classes that have at least one at-risk
+  /// student — empty entries are omitted to keep the calling UI simple.
+  static Future<Map<String, int>> getTeacherAtRiskBreakdown({
+    required List<String> classCodes,
+    required String teacherId,
+  }) async {
+    if (classCodes.isEmpty) return const <String, int>{};
+    final data = await _supabase
+        .from('profiles')
+        .select('class_code, last_played_date')
+        .inFilter('class_code', classCodes)
+        .eq('is_teacher', false)
+        .neq('id', teacherId);
+
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final result = <String, int>{};
+    for (final row in data as List) {
+      final code = row['class_code'] as String?;
+      if (code == null) continue;
+      final lastPlayed = row['last_played_date'] as String?;
+      bool atRisk;
+      if (lastPlayed == null) {
+        atRisk = true;
+      } else {
+        final last = DateTime.parse(lastPlayed);
+        final lastOnly = DateTime(last.year, last.month, last.day);
+        atRisk = todayOnly.difference(lastOnly).inDays >= 3;
+      }
+      if (atRisk) result[code] = (result[code] ?? 0) + 1;
+    }
+    return result;
+  }
+
   /// Fetches word stats aggregated across all students in the class.
   /// Groups by word, sums times_shown and times_correct.
   /// Used for the word difficulty heatmap.
@@ -80,16 +134,34 @@ class AnalyticsService {
   static Future<List<WordStat>> getClassWordStats({
     required String classCode,
   }) async {
-    // Fetch all individual word_stats rows for the class
-    final data = await _supabase
-        .from('word_stats')
-        .select('word_english, word_uzbek, times_shown, times_correct')
-        .eq('class_code', classCode);
+    return _aggregateWordStats(
+      await _supabase
+          .from('word_stats')
+          .select('word_english, word_uzbek, times_shown, times_correct')
+          .eq('class_code', classCode),
+    );
+  }
 
-    final rows = data as List;
-    if (rows.isEmpty) return [];
+  /// Same as [getClassWordStats] but aggregates across every class in
+  /// [classCodes] — used by the multi-class analytics toggle so the teacher
+  /// can see which words are hardest across all their students at once.
+  static Future<List<WordStat>> getTeacherWordStats({
+    required List<String> classCodes,
+  }) async {
+    if (classCodes.isEmpty) return const [];
+    return _aggregateWordStats(
+      await _supabase
+          .from('word_stats')
+          .select('word_english, word_uzbek, times_shown, times_correct')
+          .inFilter('class_code', classCodes),
+    );
+  }
 
-    // Aggregate: group by word_english, sum the counts
+  /// Groups rows by word_english, sums counts, sorts hardest first.
+  static List<WordStat> _aggregateWordStats(dynamic rawRows) {
+    final rows = rawRows as List;
+    if (rows.isEmpty) return const [];
+
     final Map<String, Map<String, dynamic>> aggregated = {};
     for (final row in rows) {
       final word = row['word_english'] as String;
@@ -104,14 +176,12 @@ class AnalyticsService {
       aggregated[word]!['times_shown'] =
           (aggregated[word]!['times_shown'] as int) + (row['times_shown'] as int);
       aggregated[word]!['times_correct'] =
-          (aggregated[word]!['times_correct'] as int) + (row['times_correct'] as int);
+          (aggregated[word]!['times_correct'] as int) +
+              (row['times_correct'] as int);
     }
 
     final stats = aggregated.values.map((e) => WordStat.fromMap(e)).toList();
-
-    // Sort hardest first (lowest accuracy first)
     stats.sort((a, b) => a.accuracy.compareTo(b.accuracy));
-
     return stats;
   }
 }

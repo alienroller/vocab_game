@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../theme/app_theme.dart';
 import '../data/sample_lessons.dart';
 import '../models/speaking_models.dart';
+import 'speaking_settings_screen.dart';
 
 /// Entry point screen — lesson selector with CEFR level badges.
 class SpeakingHomeScreen extends StatelessWidget {
@@ -19,6 +20,19 @@ class SpeakingHomeScreen extends StatelessWidget {
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Speaking Practice'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.tune_rounded),
+            tooltip: 'Speech engine settings',
+            onPressed: () {
+              Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SpeakingSettingsScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Container(
         decoration: BoxDecoration(

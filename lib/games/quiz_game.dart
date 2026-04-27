@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/game_constants.dart';
+import '../services/unit_best_xp_service.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -19,7 +21,17 @@ class QuizGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const QuizGame({super.key, this.customWords, this.assignmentId});
+  /// Set when the game was launched from a library/assignment unit. Presence
+  /// of [unitId] means this run is XP-eligible; the banked amount is the delta
+  /// over the user's previous best on this unit.
+  final String? unitId;
+
+  const QuizGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<QuizGame> createState() => _QuizGameState();
@@ -39,14 +51,18 @@ class _QuizGameState extends ConsumerState<QuizGame>
   int? _selectedIndex;
   late DateTime _questionStartTime;
 
+  /// Library/assignment plays earn XP; personal-practice plays don't.
+  bool get _awardsXp => widget.unitId != null;
+
   @override
   void initState() {
     super.initState();
     final List<Vocab> allVocab = widget.customWords ?? ref.read(vocabProvider);
     _allVocab = allVocab;
     _quizVocab = List<Vocab>.from(_allVocab)..shuffle(Random());
-    if (widget.customWords == null && _quizVocab.length > 10) {
-      _quizVocab = _quizVocab.sublist(0, 10);
+    if (widget.customWords == null &&
+        _quizVocab.length > GameConstants.defaultSessionSize) {
+      _quizVocab = _quizVocab.sublist(0, GameConstants.defaultSessionSize);
     }
 
     _generateOptions();
@@ -63,13 +79,18 @@ class _QuizGameState extends ConsumerState<QuizGame>
         .toList()
       ..shuffle(random);
       
-    final selectedDistractors = distractors.take(3).map((v) => v.uzbek).toList();
-    
+    final selectedDistractors = distractors
+        .take(GameConstants.multipleChoiceDistractors)
+        .map((v) => v.uzbek)
+        .toList();
+
     // Fallback if the user has < 4 total words in their entire dictionary
-    if (selectedDistractors.length < 3) {
-      final fallbacks = ['olma', 'kitob', 'mashina', 'uy', 'qalam', 'maktab', 'suv', 'non'];
-      fallbacks.shuffle(random);
-      while (selectedDistractors.length < 3 && fallbacks.isNotEmpty) {
+    if (selectedDistractors.length < GameConstants.multipleChoiceDistractors) {
+      final fallbacks = List<String>.from(GameConstants.fallbackDistractors)
+        ..shuffle(random);
+      while (selectedDistractors.length <
+              GameConstants.multipleChoiceDistractors &&
+          fallbacks.isNotEmpty) {
         final f = fallbacks.removeLast();
         if (f != currentWord.uzbek && !selectedDistractors.contains(f)) {
           selectedDistractors.add(f);
@@ -110,17 +131,21 @@ class _QuizGameState extends ConsumerState<QuizGame>
       );
     }
 
-    // Calculate XP for this answer
-    final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
-    final secondsLeft = max(0, 20 - elapsed);
-    final streakDays =
-        Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-    final xpGained = XpService.calculateXp(
-      correct: isCorrect,
-      secondsLeft: secondsLeft,
-      maxSeconds: 20,
-      streakDays: streakDays,
-    );
+    // Calculate XP for this answer (only for XP-eligible plays)
+    int xpGained = 0;
+    if (_awardsXp) {
+      final elapsed = DateTime.now().difference(_questionStartTime).inSeconds;
+      final secondsLeft =
+          max(0, GameConstants.questionTimerSeconds - elapsed);
+      final streakDays =
+          Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
+      xpGained = XpService.calculateXp(
+        correct: isCorrect,
+        secondsLeft: secondsLeft,
+        maxSeconds: GameConstants.questionTimerSeconds,
+        streakDays: streakDays,
+      );
+    }
 
     setState(() {
       _answered = true;
@@ -129,20 +154,20 @@ class _QuizGameState extends ConsumerState<QuizGame>
         _score++;
         _totalXp += xpGained;
         _lastXpGain = xpGained;
-        _showXpFloat = true;
+        _showXpFloat = _awardsXp;
       } else {
         _showXpFloat = false;
       }
     });
 
     // Hide XP float after animation
-    if (isCorrect) {
-      Future.delayed(const Duration(milliseconds: 1200), () {
+    if (isCorrect && _awardsXp) {
+      Future.delayed(GameConstants.xpFloatDuration, () {
         if (mounted) setState(() => _showXpFloat = false);
       });
     }
 
-    Future.delayed(const Duration(milliseconds: 1500), () async {
+    Future.delayed(GameConstants.answerRevealDelay, () async {
       if (!mounted) return;
       
       if (_currentIndex < _quizVocab.length - 1) {
@@ -151,9 +176,20 @@ class _QuizGameState extends ConsumerState<QuizGame>
           _generateOptions();
         });
       } else {
-        // Game Over
+        // Game Over — compute banked XP (delta over previous best for unit
+        // plays; 0 for personal practice).
+        int previousBest = 0;
+        int bankedXp = 0;
+        if (_awardsXp) {
+          previousBest = UnitBestXpService.getBest(widget.unitId!);
+          bankedXp = await UnitBestXpService.recordRun(
+            unitId: widget.unitId!,
+            runXp: _totalXp,
+          );
+        }
+
         await ref.read(profileProvider.notifier).recordGameSession(
-          xpGained: _totalXp,
+          xpGained: bankedXp,
           totalQuestions: _quizVocab.length,
           correctAnswers: _score,
         );
@@ -174,7 +210,9 @@ class _QuizGameState extends ConsumerState<QuizGame>
                 classCode: classCode,
                 studentId: studentId,
               );
-            } catch (_) {}
+            } catch (e, s) {
+              debugPrint('Assignment progress update failed: $e\n$s');
+            }
           }
         }
 
@@ -184,7 +222,10 @@ class _QuizGameState extends ConsumerState<QuizGame>
             'total': _quizVocab.length,
             'gameName': 'Quiz',
             'gameRoute': '/games/quiz',
-            'xpGained': _totalXp,
+            'runXp': _totalXp,
+            'bankedXp': bankedXp,
+            'previousBest': previousBest,
+            'unitId': widget.unitId,
             'customWords': widget.customWords,
             'assignmentId': widget.assignmentId,
           });

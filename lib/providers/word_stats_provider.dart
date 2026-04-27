@@ -26,6 +26,19 @@ class WordStatsNotifier extends StateNotifier<WordStatsState> {
       state = WordStatsState(isLoading: false, error: e.toString());
     }
   }
+
+  /// Aggregates word stats across every class in [classCodes]. Used by the
+  /// multi-class teacher analytics toggle.
+  Future<void> loadForTeacher(List<String> classCodes) async {
+    state = const WordStatsState(isLoading: true);
+    try {
+      final stats =
+          await AnalyticsService.getTeacherWordStats(classCodes: classCodes);
+      state = WordStatsState(stats: stats, isLoading: false);
+    } catch (e) {
+      state = WordStatsState(isLoading: false, error: e.toString());
+    }
+  }
 }
 
 final wordStatsProvider =

@@ -5,21 +5,45 @@ class TeacherMessageService {
   static final _supabase = Supabase.instance.client;
 
   /// Posts or updates the teacher's pinned message for their class.
-  /// Uses upsert on class_code (there is a UNIQUE constraint on class_code).
+  ///
+  /// Implemented as delete-then-insert rather than upsert because some older
+  /// databases were created before the `class_code` UNIQUE constraint was
+  /// added to the migration, and PostgREST's `onConflict` requires that
+  /// constraint to exist. Delete-then-insert works regardless.
   static Future<void> setMessage({
     required String classCode,
     required String teacherId,
     required String message,
+  }) =>
+      setMessageForClasses(
+        classCodes: [classCode],
+        teacherId: teacherId,
+        message: message,
+      );
+
+  /// Sets the same message on multiple classes. Used when a teacher picks
+  /// "Pin to all my classes" — one round-trip per class is fine for the
+  /// teacher's class limit (5).
+  static Future<void> setMessageForClasses({
+    required List<String> classCodes,
+    required String teacherId,
+    required String message,
   }) async {
-    await _supabase.from('teacher_messages').upsert(
-      {
-        'class_code': classCode,
+    if (classCodes.isEmpty) return;
+    final trimmed = message.trim();
+    final now = DateTime.now().toIso8601String();
+    for (final code in classCodes) {
+      await _supabase
+          .from('teacher_messages')
+          .delete()
+          .eq('class_code', code);
+      await _supabase.from('teacher_messages').insert({
+        'class_code': code,
         'teacher_id': teacherId,
-        'message': message.trim(),
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      onConflict: 'class_code',
-    );
+        'message': trimmed,
+        'updated_at': now,
+      });
+    }
   }
 
   /// Removes the teacher's message (students will see no message card).

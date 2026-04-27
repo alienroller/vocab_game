@@ -359,7 +359,9 @@ class _UnitListScreenState extends State<UnitListScreen> {
 
       if (!mounted) return;
 
-      // Navigate to game selection with loaded words
+      // Navigate to game selection with loaded words. unitId is the canonical
+      // signal that this play is XP-eligible (delta over the user's prior best
+      // on this unit). Personal-practice plays from /home/games never set it.
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -614,6 +616,7 @@ class _UnitGameSelectionScreenState extends State<UnitGameSelectionScreen> {
                           extra: {
                             'customWords': widget.words,
                             'assignmentId': widget.assignmentId,
+                            'unitId': widget.unitId,
                           },
                         );
                         if (mounted) setState(() => _isNavigating = false);

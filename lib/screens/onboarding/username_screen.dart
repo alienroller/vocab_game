@@ -63,12 +63,13 @@ class _UsernameScreenState extends State<UsernameScreen> {
     final username = _controller.text.trim();
 
     // Defer actual profile creation to the PIN screen
+    if (!mounted) return;
+    await context.push('/onboarding/pin', extra: {
+      'username': username,
+      'isTeacher': _isTeacher,
+    });
+    // Reset _submitting flag in case the user navigates back
     if (mounted) {
-      context.push('/onboarding/pin', extra: {
-        'username': username,
-        'isTeacher': _isTeacher,
-      });
-      // Reset _submitting flag in case the user navigates back
       setState(() => _submitting = false);
     }
   }
@@ -84,6 +85,10 @@ class _UsernameScreenState extends State<UsernameScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       resizeToAvoidBottomInset: false,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
@@ -148,14 +153,14 @@ class _UsernameScreenState extends State<UsernameScreen> {
                   ),
                   const SizedBox(height: 12),
                   if (_isAvailable == true)
-                    Text(
+                    const Text(
                       '✅ Username is available!',
                       style: TextStyle(
                           color: AppTheme.success,
                           fontWeight: FontWeight.w600),
                     ),
                   if (_isAvailable == false)
-                    Text(
+                    const Text(
                       '❌ Username is already taken',
                       style: TextStyle(
                           color: AppTheme.error,
@@ -185,7 +190,7 @@ class _UsernameScreenState extends State<UsernameScreen> {
                       ),
                       child: Row(
                         children: [
-                          Text('🎓', style: TextStyle(fontSize: 20)),
+                          const Text('🎓', style: TextStyle(fontSize: 20)),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(

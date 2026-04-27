@@ -120,11 +120,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           _currentEntry = null;
         });
       }
+    } on NoInternetException {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMsg = 'No internet connection';
+          _translatedText = null;
+          _currentEntry = null;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMsg = 'Library error: $e';
+          _errorMsg = 'Something went wrong. Please try again.';
           _translatedText = null;
           _currentEntry = null;
         });
@@ -293,45 +302,69 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
                       if (_errorMsg != null) {
                         final isOnlineReq = _errorMsg == 'Online search required';
+                        final isOffline = _errorMsg == 'No internet connection';
+                        final isMuted = isOnlineReq || isOffline;
+                        final showAction = isOnlineReq ||
+                            isOffline ||
+                            _errorMsg == 'Word not found in dictionary';
                         return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                isOnlineReq ? Icons.travel_explore_rounded : Icons.error_outline_rounded,
-                                size: 48,
-                                color: isOnlineReq 
-                                    ? (isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5))
-                                    : AppTheme.error.withValues(alpha: 0.7),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                isOnlineReq ? 'Press search on keyboard or tap below' : _errorMsg!,
-                                style: TextStyle(
-                                  color: isOnlineReq 
-                                      ? (isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight)
-                                      : AppTheme.error,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isOffline
+                                      ? Icons.wifi_off_rounded
+                                      : isOnlineReq
+                                          ? Icons.travel_explore_rounded
+                                          : Icons.error_outline_rounded,
+                                  size: 48,
+                                  color: isMuted
+                                      ? (isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5))
+                                      : AppTheme.error.withValues(alpha: 0.7),
                                 ),
-                              ),
-                              if (isOnlineReq || _errorMsg == 'Word not found in dictionary') ...[
-                                const SizedBox(height: 24),
-                                OutlinedButton.icon(
-                                  onPressed: () {
-                                    setState(() { _isLoading = true; _errorMsg = null; _translatedText = null; });
-                                    _performSearch(_currentQuery, isSubmit: true);
-                                  },
-                                  icon: const Icon(Icons.public_rounded),
-                                  label: const Text('Search Web'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppTheme.violet,
-                                    side: BorderSide(color: AppTheme.violet.withValues(alpha: 0.4)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                const SizedBox(height: 16),
+                                Text(
+                                  isOnlineReq ? 'Press search on keyboard or tap below' : _errorMsg!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: isMuted
+                                        ? (isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight)
+                                        : AppTheme.error,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                if (isOffline) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Check your connection and try again',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                                if (showAction) ...[
+                                  const SizedBox(height: 24),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      setState(() { _isLoading = true; _errorMsg = null; _translatedText = null; });
+                                      _performSearch(_currentQuery, isSubmit: true);
+                                    },
+                                    icon: Icon(isOffline ? Icons.refresh_rounded : Icons.public_rounded),
+                                    label: Text(isOffline ? 'Retry' : 'Search Web'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.violet,
+                                      side: BorderSide(color: AppTheme.violet.withValues(alpha: 0.4)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         );
                       }

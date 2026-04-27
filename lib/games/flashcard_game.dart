@@ -11,7 +11,17 @@ class FlashcardGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const FlashcardGame({super.key, this.customWords, this.assignmentId});
+  /// Accepted for symmetry with the other games and to keep "Play Again" from
+  /// the result screen routing back into the same launch context. Flashcard
+  /// is a study-only mode and never awards XP, so [unitId] is unused here.
+  final String? unitId;
+
+  const FlashcardGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<FlashcardGame> createState() => _FlashcardGameState();

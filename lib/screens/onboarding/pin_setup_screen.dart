@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../providers/profile_provider.dart';
-import '../../services/notification_service.dart';
 import '../../services/account_recovery_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -54,6 +53,7 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
           'xp': 0,
           'level': 1,
           'streak_days': 0,
+          'longest_streak': 0,
           'is_teacher': widget.isTeacher,
           'week_xp': 0,
           'total_words_answered': 0,
@@ -88,7 +88,7 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
             .createProfile(id: userId, username: widget.username, isTeacher: widget.isTeacher);
 
         // Request notification permission (iOS + Android 13+)
-        await NotificationService.requestPermission();
+        // await NotificationService.requestPermission(); TODO
 
         if (!mounted) return;
 

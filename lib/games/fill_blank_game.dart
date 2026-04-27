@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/vocab.dart';
 import '../providers/vocab_provider.dart';
+import '../services/unit_best_xp_service.dart';
 import '../services/word_session_service.dart';
 import '../services/word_stats_service.dart';
 import '../services/xp_service.dart';
@@ -19,7 +20,16 @@ class FillBlankGame extends ConsumerStatefulWidget {
   final List<Vocab>? customWords;
   final String? assignmentId;
 
-  const FillBlankGame({super.key, this.customWords, this.assignmentId});
+  /// Set when launched from a library/assignment unit. Presence of [unitId]
+  /// makes this run XP-eligible (delta over the user's prior best on the unit).
+  final String? unitId;
+
+  const FillBlankGame({
+    super.key,
+    this.customWords,
+    this.assignmentId,
+    this.unitId,
+  });
 
   @override
   ConsumerState<FillBlankGame> createState() => _FillBlankGameState();
@@ -44,6 +54,9 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
   int _lastXpGain = 0;
   bool _showXpFloat = false;
   late DateTime _questionStartTime;
+
+  /// Library/assignment plays earn XP; personal-practice plays don't.
+  bool get _awardsXp => widget.unitId != null;
 
   @override
   void initState() {
@@ -134,27 +147,30 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
 
       if (_isCorrect) {
         _score++;
-        // Calculate XP with speed bonus
-        final elapsed =
-            DateTime.now().difference(_questionStartTime).inSeconds;
-        final secondsLeft = max(0, 20 - elapsed);
-        final streakDays =
-            Hive.box('userProfile').get('streakDays', defaultValue: 0) as int;
-        final xp = XpService.calculateXp(
-          correct: true,
-          secondsLeft: secondsLeft,
-          maxSeconds: 20,
-          streakDays: streakDays,
-        );
+        // Calculate XP with speed bonus (only for XP-eligible plays)
+        int xp = 0;
+        if (_awardsXp) {
+          final elapsed =
+              DateTime.now().difference(_questionStartTime).inSeconds;
+          final secondsLeft = max(0, 20 - elapsed);
+          final streakDays = Hive.box('userProfile')
+              .get('streakDays', defaultValue: 0) as int;
+          xp = XpService.calculateXp(
+            correct: true,
+            secondsLeft: secondsLeft,
+            maxSeconds: 20,
+            streakDays: streakDays,
+          );
+        }
         _totalXp += xp;
         _lastXpGain = xp;
-        _showXpFloat = true;
+        _showXpFloat = _awardsXp;
       }
     });
 
     _focusNode.unfocus();
 
-    if (_isCorrect) {
+    if (_isCorrect && _awardsXp) {
       Future.delayed(const Duration(milliseconds: 1200), () {
         if (mounted) setState(() => _showXpFloat = false);
       });
@@ -169,8 +185,18 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
           _setupQuestion();
         });
       } else {
+        int previousBest = 0;
+        int bankedXp = 0;
+        if (_awardsXp) {
+          previousBest = UnitBestXpService.getBest(widget.unitId!);
+          bankedXp = await UnitBestXpService.recordRun(
+            unitId: widget.unitId!,
+            runXp: _totalXp,
+          );
+        }
+
         await ref.read(profileProvider.notifier).recordGameSession(
-          xpGained: _totalXp,
+          xpGained: bankedXp,
           totalQuestions: _gameVocab.length,
           correctAnswers: _score,
         );
@@ -191,7 +217,9 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
                 classCode: classCode,
                 studentId: studentId,
               );
-            } catch (_) {}
+            } catch (e, s) {
+              debugPrint('Assignment progress update failed: $e\n$s');
+            }
           }
         }
 
@@ -201,7 +229,10 @@ class _FillBlankGameState extends ConsumerState<FillBlankGame>
             'total': _gameVocab.length,
             'gameName': 'Fill in the Blank',
             'gameRoute': '/games/fill-blank',
-            'xpGained': _totalXp,
+            'runXp': _totalXp,
+            'bankedXp': bankedXp,
+            'previousBest': previousBest,
+            'unitId': widget.unitId,
             'customWords': widget.customWords,
             'assignmentId': widget.assignmentId,
           });

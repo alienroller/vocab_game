@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
 
 import '../../providers/profile_provider.dart';
 import '../../theme/app_theme.dart';
@@ -200,9 +199,9 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
     );
   }
 
-  void _onSpeechResult(SpeechRecognitionResult result) {
+  void _onSpeechResult(RecognitionResult result) {
     if (!mounted) return;
-    
+
     // Reset timer on activity
     if (_micState == MicState.recording) {
       _recordingTimer?.cancel();
@@ -214,11 +213,11 @@ class _SpeakingLessonScreenState extends ConsumerState<SpeakingLessonScreen> {
     }
 
     setState(() {
-      if (result.finalResult) {
-        _finalTranscript = result.recognizedWords;
+      if (result.isFinal) {
+        _finalTranscript = result.transcript;
         _stopRecording();
       } else {
-        _interimTranscript = result.recognizedWords;
+        _interimTranscript = result.transcript;
       }
     });
   }

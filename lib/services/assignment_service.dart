@@ -63,6 +63,34 @@ class AssignmentService {
     return (data as List).map((e) => Assignment.fromMap(e)).toList();
   }
 
+  /// Returns the set of class codes where the teacher has already assigned
+  /// the given unit (and the assignment is still active). Used by the
+  /// "Assign to classes" sheet to mark classes that already have the unit.
+  static Future<Set<String>> getAssignedClassCodesForUnit({
+    required String teacherId,
+    required String unitId,
+  }) async {
+    final data = await _supabase
+        .from('assignments')
+        .select('class_code')
+        .eq('teacher_id', teacherId)
+        .eq('unit_id', unitId)
+        .eq('is_active', true);
+    return {for (final row in (data as List)) row['class_code'] as String};
+  }
+
+  /// Counts every active assignment owned by this teacher across all their
+  /// classes. Used by the multi-class dashboard strip so the teacher can see
+  /// their total live workload at a glance.
+  static Future<int> getActiveAssignmentCountForTeacher(String teacherId) async {
+    final data = await _supabase
+        .from('assignments')
+        .select('id')
+        .eq('teacher_id', teacherId)
+        .eq('is_active', true);
+    return (data as List).length;
+  }
+
   /// Gets the assignment completion summary for a given assignment.
   /// Returns: how many students have completed it, total students in class.
   /// Used by teacher analytics to show "11/18 students completed Unit 3".

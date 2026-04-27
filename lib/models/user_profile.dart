@@ -17,7 +17,13 @@ class UserProfile {
   int level = 1;
 
   /// Consecutive days played without missing a day.
+  /// This is *history* — it stays at the value it was last set to even after
+  /// the streak dies. The UI must use [streakProvider], which derives the live
+  /// state from [lastPlayedDate], rather than reading this field directly.
   int streakDays = 0;
+
+  /// All-time best streak. Only ever increases.
+  int longestStreak = 0;
 
   /// ISO date string "YYYY-MM-DD" of the last game session.
   String? lastPlayedDate;

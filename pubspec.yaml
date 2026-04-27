@@ -1,7 +1,7 @@
 name: vocab_game
 description: "VocabGame Builder – English ↔ Uzbek vocabulary learning app"
 publish_to: 'none'
-version: 1.0.4+4
+version: 1.0.5+5
 
 environment:
   sdk: ^3.7.2
@@ -38,6 +38,16 @@ dependencies:
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.0
   permission_handler: ^11.3.0
+
+  # --- Security (Hive encryption key, PIN hashing) ---
+  flutter_secure_storage: ^9.2.2
+
+  # --- Offline speech engine (Sherpa-ONNX Zipformer STT) ---
+  # Native plugin bundles per-platform libraries automatically.
+  # Models are downloaded on first opt-in (see OfflineModelManager).
+  sherpa_onnx: ^1.12.39
+  archive: ^3.6.1
+  record: ^6.2.0
 
 dev_dependencies:
   flutter_test:

@@ -89,54 +89,50 @@ class DuelService {
     }
   }
 
-  /// Finishes the duel — determines winner and awards XP.
+  /// Finishes the duel via the atomic `finish_duel` RPC.
+  ///
+  /// The RPC handles CAS, XP awards, and commit inside a single Postgres
+  /// transaction — any failure auto-rolls back. Returns:
+  ///   - `{status: 'finished', ...}` when both players have posted their
+  ///      final score and the duel is fully settled.
+  ///   - `{status: 'waiting'}` when the caller has posted but the opponent
+  ///      hasn't yet — UI should wait for the Postgres Changes 'finished'
+  ///      event (or call [forceFinishDuel] after a timeout).
+  ///   - `{status: 'error', reason: ...}` on unexpected states.
+  ///   - `null` only on transport failure (network down, etc.).
   static Future<Map<String, dynamic>?> finishDuel({
     required String duelId,
-    required String challengerId,
-    required String opponentId,
-    required int challengerScore,
-    required int opponentScore,
+    required bool isChallenger,
+    required int myFinalScore,
   }) async {
     try {
-      String? winnerId;
-      int challengerXp = 0;
-      int opponentXp = 0;
-
-      if (challengerScore > opponentScore) {
-        winnerId = challengerId;
-        challengerXp = 50; // winner bonus
-        opponentXp = 20; // participation
-      } else if (opponentScore > challengerScore) {
-        winnerId = opponentId;
-        challengerXp = 20;
-        opponentXp = 50;
-      } else {
-        // Draw
-        challengerXp = 30;
-        opponentXp = 30;
-      }
-
-      await _supabase.from('duels').update({
-        'status': 'finished',
-        'winner_id': winnerId,
-        'challenger_xp_gain': challengerXp,
-        'opponent_xp_gain': opponentXp,
-        'finished_at': DateTime.now().toIso8601String(),
-      }).eq('id', duelId);
-
-      // Award XP to both players
-      await _supabase.rpc('increment_xp',
-          params: {'profile_id': challengerId, 'amount': challengerXp});
-      await _supabase.rpc('increment_xp',
-          params: {'profile_id': opponentId, 'amount': opponentXp});
-
-      return {
-        'winner_id': winnerId,
-        'challenger_xp': challengerXp,
-        'opponent_xp': opponentXp,
-      };
+      final result = await _supabase.rpc('finish_duel', params: {
+        'p_duel_id': duelId,
+        'p_is_challenger': isChallenger,
+        'p_my_final_score': myFinalScore,
+      });
+      if (result is Map<String, dynamic>) return result;
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return null;
     } catch (e) {
-      debugPrint('Finish duel failed: $e');
+      debugPrint('finish_duel RPC failed: $e');
+      return null;
+    }
+  }
+
+  /// Force-finishes a duel that's stuck waiting for an absent opponent.
+  /// Uses whatever scores are currently in the DB. Awards XP and commits.
+  /// Safe to call when the opponent is presumed gone (timeout reached).
+  static Future<Map<String, dynamic>?> forceFinishDuel(String duelId) async {
+    try {
+      final result = await _supabase.rpc('force_finish_duel', params: {
+        'p_duel_id': duelId,
+      });
+      if (result is Map<String, dynamic>) return result;
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return null;
+    } catch (e) {
+      debugPrint('force_finish_duel RPC failed: $e');
       return null;
     }
   }

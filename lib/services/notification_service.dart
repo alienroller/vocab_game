@@ -1,44 +1,71 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:timezone/standalone.dart';
+import 'package:vocab_game/models/notification.dart';
+import 'package:vocab_game/services/firebase_service.dart';
+import 'package:vocab_game/services/local_notification_service.dart';
+import 'package:vocab_game/util/app_permission_manager.dart';
 
-
-/// Local notification service for streak warnings, duel challenges,
-/// and leaderboard rivalry alerts.
-///
-/// All notifications are local (device-only) and do not require a server.
 class NotificationService {
   NotificationService._();
 
   static final NotificationService instance = NotificationService._();
 
-  static final _plugin = FlutterLocalNotificationsPlugin();
+  Future<void> initialize() async {
+    await LocalNotificationService.instance.initialize();
 
-  /// Initialize the notification plugin. Call once in main().
-  static Future<void> initialize() async {
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings();
-    const settings = InitializationSettings(android: android, iOS: ios);
+    await FirebaseService.instance.initialize();
+  }
 
-    await _plugin.initialize(
-      settings,
-      onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse: _onDidReceiveNotificationResponse,
+  Future<void> requestPermission({
+    required PermissionCallback onGranted,
+    required PermissionCallback onDenied,
+    PermissionCallback? onPermanentlyDenied,
+  }) async {
+    await AppPermissionManager.requestPermission(
+      permission: Permission.notification,
+      onGranted: onGranted,
+      onDenied: onDenied,
+      onPermanentlyDenied: onPermanentlyDenied,
     );
   }
 
-  /// Request notification permissions on iOS and Android 13+.
-  /// Call once during onboarding.
-  static Future<void> requestPermission() async {
-    // Android 13+
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+  Future<void> onNotificationOpened(Notification notification) async {
+    if (notification.data == null) return;
 
-    // iOS
-    await _plugin
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
+    if (notification.data!['path'] == null) return;
   }
+
+  Future<void> show({int id = 404, String? title, String? body, String? payload}) async {
+    await LocalNotificationService.instance.show(
+      id: id,
+      title: title,
+      body: body,
+      payload: payload,
+    );
+  }
+
+  Future<void> schedule({
+    int id = 404,
+    required String title,
+    required String body,
+    TZDateTime? date,
+    Duration delay = const Duration(days: 1),
+    DateTimeComponents? repeat,
+  }) async {
+    await LocalNotificationService.instance.schedule(
+      id: id,
+      title: title,
+      body: body,
+      date: date,
+      delay: delay,
+      repeat: repeat,
+      // payload: TODO(Do it later like this : payload = jsonEncode(data);)
+    );
+  }
+
+  static final _plugin = FlutterLocalNotificationsPlugin();
 
   // ─── Streak Warning ─────────────────────────────────────────────
 
@@ -98,7 +125,6 @@ class NotificationService {
       debugPrint('Duel notification failed: $e');
     }
   }
-
 
   static void _onDidReceiveNotificationResponse(NotificationResponse details) {
     // Currently no-op. Payload could be used to route the user

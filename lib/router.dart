@@ -8,6 +8,9 @@ import 'games/flashcard_game.dart';
 import 'games/matching_game.dart';
 import 'games/memory_game.dart';
 import 'games/quiz_game.dart';
+import 'screens/student/student_exam_lobby_screen.dart';
+import 'screens/student/student_exam_results_screen.dart';
+import 'screens/student/student_exam_screen.dart';
 import 'screens/student_nav_shell.dart';
 import 'screens/teacher_nav_shell.dart';
 import 'screens/duel/duel_game_screen.dart';
@@ -33,10 +36,17 @@ import 'screens/onboarding/class_code_reveal_screen.dart';
 import 'screens/onboarding/teacher_class_setup_screen.dart';
 import 'screens/teacher/teacher_analytics_screen.dart';
 import 'screens/teacher/teacher_classes_screen.dart';
+import 'screens/teacher/create_exam_screen.dart';
 import 'screens/teacher/teacher_dashboard_screen.dart';
+import 'screens/teacher/teacher_exam_lobby_screen.dart';
+import 'screens/teacher/teacher_exam_results_screen.dart';
+import 'screens/teacher/teacher_exams_screen.dart';
 import 'screens/teacher/teacher_library_screen.dart';
 import 'screens/teacher/teacher_profile_screen.dart';
 import 'screens/teacher/teacher_student_detail_screen.dart';
+import 'features/speaking/presentation/screens/lesson_runner_screen.dart';
+import 'features/speaking/presentation/screens/scenario_intro_screen.dart';
+import 'features/speaking/presentation/screens/scenario_list_screen.dart';
 import 'speaking/models/speaking_models.dart';
 import 'speaking/screens/speaking_home_screen.dart';
 import 'speaking/screens/speaking_lesson_screen.dart';
@@ -81,7 +91,7 @@ final _teacherDashboardNavKey = GlobalKey<NavigatorState>(debugLabel: 't_dash');
 final _teacherClassesNavKey = GlobalKey<NavigatorState>(debugLabel: 't_class');
 final _teacherLibraryNavKey = GlobalKey<NavigatorState>(debugLabel: 't_lib');
 final _teacherAnalyticsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_analytics');
-final _teacherProfileNavKey = GlobalKey<NavigatorState>(debugLabel: 't_profile');
+final _teacherExamsNavKey = GlobalKey<NavigatorState>(debugLabel: 't_exams');
 
 /// Centralized router — all navigation goes through named routes.
 ///
@@ -233,14 +243,39 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
 
-        // Tab 2: Speaking
+        // Tab 2: Speaking (Falou-style scenario list)
         StatefulShellBranch(
           navigatorKey: _searchNavKey, // re-used navKey for convenience without breaking global root scope
           routes: [
             GoRoute(
               path: '/speaking',
               pageBuilder: (_, state) =>
-                  _buildPage(const SpeakingHomeScreen(), state),
+                  _buildPage(const ScenarioListScreen(), state),
+              routes: [
+                GoRoute(
+                  path: 'scenario/:id',
+                  pageBuilder: (_, state) {
+                    final id = state.pathParameters['id']!;
+                    return _buildPage(
+                      ScenarioIntroScreen(scenarioId: id),
+                      state,
+                    );
+                  },
+                  routes: [
+                    GoRoute(
+                      path: 'run',
+                      parentNavigatorKey: _rootNavigatorKey,
+                      pageBuilder: (_, state) {
+                        final id = state.pathParameters['id']!;
+                        return _buildPage(
+                          LessonRunnerScreen(scenarioId: id),
+                          state,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ],
         ),
@@ -280,6 +315,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(QuizGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -291,6 +327,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(FlashcardGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -302,6 +339,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(MatchingGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -313,6 +351,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(MemoryGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -324,6 +363,7 @@ final GoRouter appRouter = GoRouter(
         return _buildPage(FillBlankGame(
           customWords: extra?['customWords'] as List<Vocab>?,
           assignmentId: extra?['assignmentId'] as String?,
+          unitId: extra?['unitId'] as String?,
         ), state);
       },
     ),
@@ -336,6 +376,12 @@ final GoRouter appRouter = GoRouter(
           _buildPage(const SearchScreen(), state),
     ),
 
+    GoRoute(
+      path: '/speaking-legacy',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const SpeakingHomeScreen(), state),
+    ),
     GoRoute(
       path: '/speaking/lesson',
       parentNavigatorKey: _rootNavigatorKey,
@@ -366,7 +412,10 @@ final GoRouter appRouter = GoRouter(
             total: args['total'] as int,
             gameName: args['gameName'] as String,
             gameRoute: args['gameRoute'] as String,
-            xpGained: args['xpGained'] as int? ?? 0,
+            runXp: args['runXp'] as int? ?? 0,
+            bankedXp: args['bankedXp'] as int? ?? 0,
+            previousBest: args['previousBest'] as int? ?? 0,
+            unitId: args['unitId'] as String?,
             customWords: args['customWords'] as List<Vocab>?,
             assignmentId: args['assignmentId'] as String?,
           ),
@@ -431,6 +480,47 @@ final GoRouter appRouter = GoRouter(
           _buildPage(const DuelHistoryScreen(), state),
     ),
 
+    // ─── Student exam flow ──────────────────────────────────────────────
+    GoRoute(
+      path: '/student/exam/:sessionId/lobby',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        return _buildPage(
+          StudentExamLobbyScreen(sessionId: sessionId),
+          state,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/student/exam/:sessionId/take',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        return _buildPage(
+          StudentExamScreen(sessionId: sessionId),
+          state,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/student/exam/:sessionId/results',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) {
+        final sessionId = state.pathParameters['sessionId']!;
+        final args = state.extra as Map<String, dynamic>? ?? <String, dynamic>{};
+        return _buildPage(
+          StudentExamResultsScreen(
+            sessionId: sessionId,
+            correctCount: (args['correctCount'] as int?) ?? 0,
+            totalCount: (args['totalCount'] as int?) ?? 0,
+            totalQuestions: (args['totalQuestions'] as int?) ?? 0,
+          ),
+          state,
+        );
+      },
+    ),
+
     // ─── Teacher Bottom Nav Shell ───────────────────────────────────────
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) =>
@@ -473,6 +563,43 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
         StatefulShellBranch(
+          navigatorKey: _teacherExamsNavKey,
+          routes: [
+            GoRoute(
+              path: '/teacher/exams',
+              pageBuilder: (_, state) =>
+                  _buildPage(const TeacherExamsScreen(), state),
+              routes: [
+                GoRoute(
+                  path: 'create',
+                  pageBuilder: (_, state) =>
+                      _buildPage(const CreateExamScreen(), state),
+                ),
+                GoRoute(
+                  path: ':sessionId/lobby',
+                  pageBuilder: (_, state) {
+                    final sessionId = state.pathParameters['sessionId']!;
+                    return _buildPage(
+                      TeacherExamLobbyScreen(sessionId: sessionId),
+                      state,
+                    );
+                  },
+                ),
+                GoRoute(
+                  path: ':sessionId/results',
+                  pageBuilder: (_, state) {
+                    final sessionId = state.pathParameters['sessionId']!;
+                    return _buildPage(
+                      TeacherExamResultsScreen(sessionId: sessionId),
+                      state,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        StatefulShellBranch(
           navigatorKey: _teacherAnalyticsNavKey,
           routes: [
             GoRoute(
@@ -481,16 +608,16 @@ final GoRouter appRouter = GoRouter(
             ),
           ],
         ),
-        StatefulShellBranch(
-          navigatorKey: _teacherProfileNavKey,
-          routes: [
-            GoRoute(
-              path: '/teacher/profile',
-              pageBuilder: (_, state) => _buildPage(const TeacherProfileScreen(), state),
-            ),
-          ],
-        ),
       ],
+    ),
+    // Profile sits outside the bottom-nav shell so it pushes over the
+    // current tab instead of taking up a slot. Reached from the avatar
+    // icon in the Dashboard app bar.
+    GoRoute(
+      path: '/teacher/profile',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const TeacherProfileScreen(), state),
     ),
     GoRoute(
       path: '/teacher/student-detail',

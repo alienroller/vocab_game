@@ -11,6 +11,7 @@ CREATE TABLE profiles (
   xp integer DEFAULT 0 NOT NULL,
   level integer DEFAULT 1 NOT NULL,
   streak_days integer DEFAULT 0 NOT NULL,
+  longest_streak integer DEFAULT 0 NOT NULL,
   last_played_date date,
   class_code text,
   week_xp integer DEFAULT 0 NOT NULL,
@@ -91,6 +92,18 @@ CREATE TABLE word_mastery (
   UNIQUE(profile_id, word_id)
 );
 
+-- ─── 6b. UNIT BEST XP ───────────────────────────────────────────────────────
+-- Per-user-per-unit best XP. Replays only bank the delta over the prior best,
+-- so leaderboards can't be farmed by repeating the same unit.
+CREATE TABLE unit_best_xp (
+  profile_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  unit_id    uuid NOT NULL REFERENCES units(id)    ON DELETE CASCADE,
+  best_xp    integer NOT NULL DEFAULT 0 CHECK (best_xp >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (profile_id, unit_id)
+);
+CREATE INDEX unit_best_xp_profile_idx ON unit_best_xp (profile_id);
+
 -- ─── 7. DUELS ───────────────────────────────────────────────────────────────
 CREATE TABLE duels (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -102,11 +115,14 @@ CREATE TABLE duels (
   opponent_score integer DEFAULT 0,
   challenger_xp_gain integer DEFAULT 0,
   opponent_xp_gain integer DEFAULT 0,
-  status text DEFAULT 'pending' CHECK (status IN ('pending','active','finished','declined')),
+  status text DEFAULT 'pending' CHECK (status IN ('pending','active','settling','finished','declined')),
   word_set jsonb NOT NULL,
   winner_id uuid REFERENCES profiles(id),
   started_at timestamptz,
+  settling_at timestamptz,
   finished_at timestamptz,
+  challenger_done boolean DEFAULT false NOT NULL,
+  opponent_done boolean DEFAULT false NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -168,6 +184,168 @@ BEGIN
 END;
 $$;
 
+-- ─── 11b. INSTANT DUEL FINISH ──────────────────────────────────────────────
+-- See supabase/migrations/009_finish_duel_instant.sql. The first call ends
+-- the duel using the caller's authoritative final score and the opponent's
+-- current DB score (which may be partial — the race to finish is the duel).
+-- Late callers get the cached result back so they can still navigate to
+-- results. Any failure rolls the whole transaction back automatically.
+CREATE OR REPLACE FUNCTION finish_duel(
+  p_duel_id uuid,
+  p_is_challenger boolean,
+  p_my_final_score integer
+) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_row duels%ROWTYPE;
+  v_winner_id uuid;
+  v_challenger_xp integer;
+  v_opponent_xp integer;
+BEGIN
+  SELECT * INTO v_row FROM duels WHERE id = p_duel_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status','error','reason','duel_not_found');
+  END IF;
+
+  IF v_row.status = 'finished' THEN
+    RETURN jsonb_build_object(
+      'status','finished',
+      'challenger_score', v_row.challenger_score,
+      'opponent_score', v_row.opponent_score,
+      'winner_id', v_row.winner_id,
+      'challenger_xp', v_row.challenger_xp_gain,
+      'opponent_xp', v_row.opponent_xp_gain,
+      'challenger_username', v_row.challenger_username,
+      'opponent_username', v_row.opponent_username
+    );
+  END IF;
+
+  IF v_row.status NOT IN ('active','settling') THEN
+    RETURN jsonb_build_object('status','error','reason', v_row.status);
+  END IF;
+
+  IF p_is_challenger THEN
+    v_row.challenger_score := p_my_final_score;
+    UPDATE duels SET
+      challenger_score = p_my_final_score,
+      challenger_done = true
+    WHERE id = p_duel_id;
+  ELSE
+    v_row.opponent_score := p_my_final_score;
+    UPDATE duels SET
+      opponent_score = p_my_final_score,
+      opponent_done = true
+    WHERE id = p_duel_id;
+  END IF;
+
+  IF v_row.challenger_score > v_row.opponent_score THEN
+    v_winner_id := v_row.challenger_id;
+    v_challenger_xp := 50;
+    v_opponent_xp := 20;
+  ELSIF v_row.opponent_score > v_row.challenger_score THEN
+    v_winner_id := v_row.opponent_id;
+    v_challenger_xp := 20;
+    v_opponent_xp := 50;
+  ELSE
+    v_winner_id := NULL;
+    v_challenger_xp := 30;
+    v_opponent_xp := 30;
+  END IF;
+
+  PERFORM increment_xp(v_row.challenger_id, v_challenger_xp);
+  PERFORM increment_xp(v_row.opponent_id, v_opponent_xp);
+
+  UPDATE duels SET
+    status = 'finished',
+    winner_id = v_winner_id,
+    challenger_xp_gain = v_challenger_xp,
+    opponent_xp_gain = v_opponent_xp,
+    finished_at = now()
+  WHERE id = p_duel_id;
+
+  RETURN jsonb_build_object(
+    'status','finished',
+    'challenger_score', v_row.challenger_score,
+    'opponent_score', v_row.opponent_score,
+    'winner_id', v_winner_id,
+    'challenger_xp', v_challenger_xp,
+    'opponent_xp', v_opponent_xp,
+    'challenger_username', v_row.challenger_username,
+    'opponent_username', v_row.opponent_username
+  );
+END;
+$$;
+
+-- Force-finish for the 30s timeout fallback when an opponent disconnects.
+CREATE OR REPLACE FUNCTION force_finish_duel(p_duel_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_row duels%ROWTYPE;
+  v_winner_id uuid;
+  v_challenger_xp integer;
+  v_opponent_xp integer;
+BEGIN
+  SELECT * INTO v_row FROM duels WHERE id = p_duel_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status','error','reason','duel_not_found');
+  END IF;
+
+  IF v_row.status = 'finished' THEN
+    RETURN jsonb_build_object(
+      'status','finished',
+      'challenger_score', v_row.challenger_score,
+      'opponent_score', v_row.opponent_score,
+      'winner_id', v_row.winner_id,
+      'challenger_xp', v_row.challenger_xp_gain,
+      'opponent_xp', v_row.opponent_xp_gain,
+      'challenger_username', v_row.challenger_username,
+      'opponent_username', v_row.opponent_username
+    );
+  END IF;
+
+  IF v_row.status NOT IN ('active','settling') THEN
+    RETURN jsonb_build_object('status','error','reason', v_row.status);
+  END IF;
+
+  IF v_row.challenger_score > v_row.opponent_score THEN
+    v_winner_id := v_row.challenger_id;
+    v_challenger_xp := 50;
+    v_opponent_xp := 20;
+  ELSIF v_row.opponent_score > v_row.challenger_score THEN
+    v_winner_id := v_row.opponent_id;
+    v_challenger_xp := 20;
+    v_opponent_xp := 50;
+  ELSE
+    v_winner_id := NULL;
+    v_challenger_xp := 30;
+    v_opponent_xp := 30;
+  END IF;
+
+  PERFORM increment_xp(v_row.challenger_id, v_challenger_xp);
+  PERFORM increment_xp(v_row.opponent_id, v_opponent_xp);
+
+  UPDATE duels SET
+    status = 'finished',
+    winner_id = v_winner_id,
+    challenger_xp_gain = v_challenger_xp,
+    opponent_xp_gain = v_opponent_xp,
+    finished_at = now()
+  WHERE id = p_duel_id;
+
+  RETURN jsonb_build_object(
+    'status','finished',
+    'challenger_score', v_row.challenger_score,
+    'opponent_score', v_row.opponent_score,
+    'winner_id', v_winner_id,
+    'challenger_xp', v_challenger_xp,
+    'opponent_xp', v_opponent_xp,
+    'challenger_username', v_row.challenger_username,
+    'opponent_username', v_row.opponent_username
+  );
+END;
+$$;
+
 -- ─── 12. REALTIME ───────────────────────────────────────────────────────────
 ALTER TABLE profiles REPLICA IDENTITY FULL;
 ALTER TABLE duels REPLICA IDENTITY FULL;
@@ -179,6 +357,7 @@ ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE words ENABLE ROW LEVEL SECURITY;
 ALTER TABLE word_mastery ENABLE ROW LEVEL SECURITY;
+ALTER TABLE unit_best_xp ENABLE ROW LEVEL SECURITY;
 ALTER TABLE duels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hall_of_fame ENABLE ROW LEVEL SECURITY;
 
@@ -200,6 +379,11 @@ CREATE POLICY "words_read" ON words FOR SELECT USING (true);
 CREATE POLICY "mastery_read" ON word_mastery FOR SELECT USING (true);
 CREATE POLICY "mastery_insert" ON word_mastery FOR INSERT WITH CHECK (true);
 CREATE POLICY "mastery_update" ON word_mastery FOR UPDATE USING (true);
+
+-- Unit best XP: open for classroom use
+CREATE POLICY "unit_best_xp_read"   ON unit_best_xp FOR SELECT USING (true);
+CREATE POLICY "unit_best_xp_insert" ON unit_best_xp FOR INSERT WITH CHECK (true);
+CREATE POLICY "unit_best_xp_update" ON unit_best_xp FOR UPDATE USING (true);
 
 -- Duels: open
 CREATE POLICY "duels_read" ON duels FOR SELECT USING (true);
