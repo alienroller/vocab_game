@@ -192,7 +192,8 @@ jobs:
           -scheme Runner \
           -configuration Release \
           -destination 'generic/platform=iOS' \
-          -archivePath "$ARCHIVE_PATH"
+          -archivePath "$ARCHIVE_PATH" \
+          IPHONEOS_DEPLOYMENT_TARGET=13.0
         
         echo "Exporting IPA..."
         xcodebuild -exportArchive \
