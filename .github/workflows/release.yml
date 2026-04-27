@@ -176,6 +176,18 @@ jobs:
           --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
           --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
 
+    - name: Fix App.framework MinimumOSVersion
+      run: |
+        PLIST="build/ios/Release-iphoneos/Runner.app/Frameworks/App.framework/Info.plist"
+        if [ -f "$PLIST" ]; then
+          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 13.0" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string 13.0" "$PLIST"
+          echo "Patched MinimumOSVersion in App.framework"
+        else
+          echo "WARNING: App.framework Info.plist not found at expected path"
+          find build/ios -name "Info.plist" | grep App.framework
+        fi
+
     - name: Archive and export IPA
       env:
         EXPORT_OPTIONS_PLIST_BASE64: ${{ secrets.IOS_EXPORT_OPTIONS_PLIST_BASE64 }}
