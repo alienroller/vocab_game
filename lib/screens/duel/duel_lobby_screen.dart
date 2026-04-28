@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../providers/friendship_provider.dart';
 import '../../services/duel_service.dart';
 import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
@@ -359,12 +360,55 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final isDark = theme.brightness == Brightness.dark;
     final classCode = _classCode;
     final hasClass = classCode != null && classCode.isNotEmpty;
+    final friendRequestsCount =
+        ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Duel Arena',
             style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
+          IconButton(
+            tooltip: 'Friends',
+            onPressed: () => context.push('/friends'),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.people_alt_rounded, size: 22),
+                if (friendRequestsCount > 0)
+                  Positioned(
+                    right: -5,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: isDark
+                              ? const Color(0xFF0F1228)
+                              : Colors.white,
+                          width: 1.5,
+                        ),
+                      ),
+                      constraints: const BoxConstraints(
+                          minWidth: 16, minHeight: 16),
+                      child: Text(
+                        friendRequestsCount > 9 ? '9+' : '$friendRequestsCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.history_rounded, size: 22),
             tooltip: 'Duel History',

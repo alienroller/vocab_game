@@ -17,6 +17,8 @@ import 'screens/duel/duel_game_screen.dart';
 import 'screens/duel/duel_history_screen.dart';
 import 'screens/duel/duel_lobby_screen.dart';
 import 'screens/duel/duel_results_screen.dart';
+import 'screens/friends/friend_profile_screen.dart';
+import 'screens/friends/friends_screen.dart';
 import 'screens/game_selection_screen.dart';
 import 'screens/hall_of_fame_screen.dart';
 import 'screens/home_screen.dart';
@@ -478,6 +480,24 @@ final GoRouter appRouter = GoRouter(
       parentNavigatorKey: _rootNavigatorKey,
       pageBuilder: (_, state) =>
           _buildPage(const DuelHistoryScreen(), state),
+    ),
+
+    // ─── Friends (full-screen overlay) ──────────────────────────
+    GoRoute(
+      path: '/friends',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (_, state) =>
+          _buildPage(const FriendsScreen(), state),
+      routes: [
+        GoRoute(
+          path: 'profile/:userId',
+          parentNavigatorKey: _rootNavigatorKey,
+          pageBuilder: (_, state) {
+            final userId = state.pathParameters['userId']!;
+            return _buildPage(FriendProfileScreen(userId: userId), state);
+          },
+        ),
+      ],
     ),
 
     // ─── Student exam flow ──────────────────────────────────────────────

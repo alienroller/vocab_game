@@ -12,6 +12,7 @@ import '../providers/profile_provider.dart';
 import '../providers/streak_provider.dart';
 import '../providers/vocab_provider.dart';
 import '../providers/assignment_provider.dart';
+import '../providers/friendship_provider.dart';
 import '../services/streak_calculator.dart';
 import '../models/vocab.dart';
 import '../models/teacher_message.dart';
@@ -291,6 +292,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ],
         ),
+        actions: const [
+          _FriendsAppBarButton(),
+          SizedBox(width: 4),
+        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -962,6 +967,62 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         foregroundColor: Colors.white,
         elevation: 8,
         child: const Icon(Icons.add_rounded, size: 28),
+      ),
+    );
+  }
+}
+
+// ─── Friends AppBar Button ────────────────────────────────────────────
+
+/// Badged people icon in the Home AppBar — entry point to the Friends hub.
+/// Watches [incomingFriendRequestsProvider] so the red count badge updates
+/// in realtime as requests arrive, without rebuilding the rest of Home.
+class _FriendsAppBarButton extends ConsumerWidget {
+  const _FriendsAppBarButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count =
+        ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return IconButton(
+      tooltip: 'Friends',
+      onPressed: () => context.push('/friends'),
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.people_alt_rounded, size: 24),
+          if (count > 0)
+            Positioned(
+              right: -5,
+              top: -4,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppTheme.error,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF0F1228) : Colors.white,
+                    width: 1.5,
+                  ),
+                ),
+                constraints:
+                    const BoxConstraints(minWidth: 16, minHeight: 16),
+                child: Text(
+                  count > 9 ? '9+' : '$count',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
