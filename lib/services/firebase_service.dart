@@ -11,13 +11,18 @@ import 'package:vocab_game/services/key_constants.dart';
 import 'package:vocab_game/services/notification_service.dart';
 import 'package:vocab_game/services/storage_provider.dart';
 
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // kerak bo‘lsa Firebase.initializeApp()
+}
+
 class FirebaseService {
   FirebaseService._();
 
   static final FirebaseService instance = FirebaseService._();
 
   bool _isInitialized = false;
-  final _topic = 'Vocab Game News';
+  final _topic = 'vocab_game_news';
   final _supabase = Supabase.instance.client;
 
   StreamSubscription? _tokenSubscription;
@@ -25,27 +30,35 @@ class FirebaseService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    _isInitialized = true;
+    try {
+      if (!kIsWeb) {
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      }
 
-    if (!kIsWeb) {
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      await FirebaseMessaging.instance.setAutoInitEnabled(true);
+
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      await _onBackgroundMessage();
+
+      await _onMessageReceived();
+
+      await _onMessageOpened();
+
+      await _getInitialMessage();
+
+      _isInitialized = true;
+    } catch (_) {
+      _isInitialized = false;
     }
+  }
 
-    await FirebaseMessaging.instance.requestPermission(provisional: true);
-
-    await FirebaseMessaging.instance.setAutoInitEnabled(true);
-
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    await _getInitialMessage();
-
-    await _onMessageOpened();
-
-    await _onMessageReceived();
+  Future<void> _onBackgroundMessage() async {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   }
 
   Future<void> _onMessageReceived() async {
@@ -114,9 +127,15 @@ class FirebaseService {
   }
 
   Future<void> _saveTokenToSupabase(String token) async {
-    final profileId = Hive.box('userProfile').get('id') as String;
+    final profileId = Hive.box('userProfile').get('id');
 
-    await _supabase.from('profiles').update({'fcm_token': token}).eq('id', profileId);
+    if (profileId == null) return;
+
+    try {
+      await _supabase.from('profiles').update({'fcm_token': token}).eq('id', profileId);
+    } catch (e) {
+      debugPrint('Supabase error: $e');
+    }
   }
 
   Future<void> _subscribeFCMTopics() async {

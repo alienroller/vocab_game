@@ -1,31 +1,36 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:vocab_game/config/environment_constants.dart';
+import 'package:vocab_game/services/key_constants.dart';
+import 'package:vocab_game/services/notification_service.dart';
+import 'package:vocab_game/services/storage_provider.dart';
 import 'package:vocab_game/services/version_service.dart';
 import 'package:vocab_game/widgets/empty_vocab_list.dart';
 
+import '../models/teacher_message.dart';
+import '../models/vocab.dart';
+import '../providers/assignment_provider.dart';
+import '../providers/friendship_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/streak_provider.dart';
 import '../providers/student_exam_provider.dart';
 import '../providers/vocab_provider.dart';
-import '../providers/assignment_provider.dart';
-import '../providers/friendship_provider.dart';
-import '../services/notification_service.dart';
 import '../services/streak_calculator.dart';
-import '../models/vocab.dart';
-import '../models/teacher_message.dart';
 import '../services/teacher_message_service.dart';
 import '../services/word_session_service.dart';
-import 'library/library_screen.dart' show UnitGameSelectionScreen;
 import '../theme/app_theme.dart';
-import '../widgets/xp_bar_widget.dart';
-import '../widgets/streak_widget.dart';
 import '../widgets/exam_banner_widget.dart';
+import '../widgets/streak_widget.dart';
 import '../widgets/vocab_tile.dart';
+import '../widgets/xp_bar_widget.dart';
+import 'library/library_screen.dart' show UnitGameSelectionScreen;
 
 /// Home screen with premium gradient design, hero header, vocabulary list,
 /// and floating add-word bottom sheet.
@@ -36,8 +41,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
-    with WidgetsBindingObserver {
+class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   String? _rivalName;
   int _rivalXp = 0; // store rival's actual XP, calculate gap live in build()
   TeacherMessage? _teacherMessage;
@@ -48,17 +52,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadClassData();
-      _maybeRequestNotificationPermission();
 
-      AppVersionInfo.instance.checkForUpdate().then((isUpdateAvailable) {
-        if (isUpdateAvailable && mounted) {
-          context.pushReplacement('/update');
-        }
-      });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _loadClassData();
+
+      final isUpdateAvailable = await AppVersionInfo.instance.checkForUpdate();
+
+      if (isUpdateAvailable && mounted) context.pushReplacement('/update');
+
+      _maybeRequestNotificationPermission();
     });
+
     _fetchRival();
+
     _checkStreakMilestone();
 
     _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -73,16 +79,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Skipped on later launches so we don't keep prompting if they declined
   /// (BUG C1). The OS de-dupes the system dialog anyway, but tracking the
   /// "we asked" bit means we can stop calling the API entirely.
-  void _maybeRequestNotificationPermission() {
-    final box = Hive.box('notif_state');
-    final asked = box.get('permission_asked', defaultValue: false) as bool;
-    if (asked) return;
-    box.put('permission_asked', true);
-    NotificationService.instance.requestPermission(
-      onGranted: () {},
-      onDenied: () {},
-      onPermanentlyDenied: () {},
-    );
+  void _maybeRequestNotificationPermission() async {
+    final lastRequested = LocalStorageProvider.cache.getString(KeyConstants.lastNotifReqTime);
+
+    bool should = true;
+
+    if (lastRequested.isNotEmpty) {
+      final date = DateTime.tryParse(lastRequested);
+
+      if (date != null) {
+        final diff = DateTime.now().difference(date).inSeconds;
+
+        if (diff < EnvironmentConstants.notificationRequestDiff) should = false;
+      }
+    }
+
+    if (!should) return;
+
+    final hasNotificationPermission = await Permission.notification.isGranted;
+
+    if (hasNotificationPermission) return;
+
+    await NotificationService.instance.requestPermission(onGranted: () {}, onDenied: () {});
+
+    final time = DateTime.now().toIso8601String();
+
+    await LocalStorageProvider.cache.setString(KeyConstants.lastNotifReqTime, time);
   }
 
   void _loadClassData() async {
@@ -91,10 +113,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     await ref
         .read(assignmentProvider.notifier)
-        .loadStudentAssignments(
-          classCode: profile.classCode!,
-          studentId: profile.id,
-        );
+        .loadStudentAssignments(classCode: profile.classCode!, studentId: profile.id);
 
     // Diff fetched assignments against the Hive 'seen' set. New ones fire
     // a local notification so the student knows a teacher just posted
@@ -116,11 +135,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _notifyOnNewAssignments() {
     try {
       final box = Hive.box('notif_state');
-      final assignments =
-          ref.read(assignmentProvider).assignments.map((a) => a.id).toSet();
-      final seenList = (box.get('seen_assignments') as List?)
-          ?.map((e) => e.toString())
-          .toSet();
+      final assignments = ref.read(assignmentProvider).assignments.map((a) => a.id).toSet();
+      final seenList = (box.get('seen_assignments') as List?)?.map((e) => e.toString()).toSet();
       if (seenList == null) {
         // First poll for this device — seed silently.
         box.put('seen_assignments', assignments.toList());
@@ -128,10 +144,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
       final newIds = assignments.difference(seenList);
       if (newIds.isEmpty) return;
-      final fresh = ref
-          .read(assignmentProvider)
-          .assignments
-          .where((a) => newIds.contains(a.id));
+      final fresh = ref.read(assignmentProvider).assignments.where((a) => newIds.contains(a.id));
       for (final a in fresh) {
         unawaited(NotificationService.notifyNewAssignment(
           unitTitle: a.unitTitle,
@@ -178,19 +191,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     try {
       final box = Hive.box('notif_state');
       final ids = exams.map((e) => e.id as String).toSet();
-      final seenList = (box.get('seen_exams') as List?)
-          ?.map((e) => e.toString())
-          .toSet();
+      final seenList = (box.get('seen_exams') as List?)?.map((e) => e.toString()).toSet();
       if (seenList == null) {
         box.put('seen_exams', ids.toList());
         return;
       }
       final newIds = ids.difference(seenList);
       for (final newId in newIds) {
-        final session = exams.firstWhere(
-          (e) => e.id == newId,
-          orElse: () => null,
-        );
+        final session = exams.firstWhere((e) => e.id == newId, orElse: () => null);
         if (session == null) continue;
         unawaited(NotificationService.notifyNewExam(
           examTitle: session.title as String,
@@ -221,8 +229,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _checkStreakMilestone() {
     final profileBox = Hive.box('userProfile');
     final streakDays = profileBox.get('streakDays', defaultValue: 0) as int;
-    final lastMilestone =
-        profileBox.get('lastStreakMilestone', defaultValue: 0) as int;
+    final lastMilestone = profileBox.get('lastStreakMilestone', defaultValue: 0) as int;
 
     const milestones = [30, 14, 7, 3];
     for (final milestone in milestones) {
@@ -234,10 +241,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               context: context,
               barrierDismissible: false,
               builder:
-                  (_) => _StreakMilestoneDialog(
-                    milestone: milestone,
-                    currentStreak: streakDays,
-                  ),
+                  (_) => _StreakMilestoneDialog(milestone: milestone, currentStreak: streakDays),
             );
           }
         });
@@ -269,10 +273,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .from('profiles')
           .select('username, xp')
           .eq('class_code', classCode)
-          .eq(
-            'is_teacher',
-            false,
-          ); // BUG 10 fix: exclude teacher from rival candidates
+          .eq('is_teacher', false); // BUG 10 fix: exclude teacher from rival candidates
 
       if (teacherId != null) {
         query = query.neq('id', teacherId); // Belt-and-suspenders exclusion
@@ -337,22 +338,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   decoration: const InputDecoration(hintText: 'English'),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: uzCtrl,
-                  decoration: const InputDecoration(hintText: 'Uzbek'),
-                ),
+                TextField(controller: uzCtrl, decoration: const InputDecoration(hintText: 'Uzbek')),
               ],
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               FilledButton(
                 onPressed: () {
-                  ref
-                      .read(vocabProvider.notifier)
-                      .updateVocab(vocab.id, engCtrl.text, uzCtrl.text);
+                  ref.read(vocabProvider.notifier).updateVocab(vocab.id, engCtrl.text, uzCtrl.text);
                   Navigator.pop(context);
                 },
                 child: const Text('Save'),
@@ -386,9 +379,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // so it updates instantly when profile XP changes via ref.watch.
 
     final streak = ref.watch(streakProvider);
-    final username =
-        profile?.username ??
-        profileBox.get('username', defaultValue: '') as String;
+    final username = profile?.username ?? profileBox.get('username', defaultValue: '') as String;
     // The "play today!" banner shows when the streak is alive but we haven't
     // played yet — i.e. yesterday was the last play. When broken, hide the
     // banner: the streak is already gone, no rescue is possible today.
@@ -423,10 +414,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ],
         ),
-        actions: const [
-          _FriendsAppBarButton(),
-          SizedBox(width: 4),
-        ],
+        actions: const [_FriendsAppBarButton(), SizedBox(width: 4)],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -456,19 +444,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         child: InkWell(
                           borderRadius: AppTheme.borderRadiusSm,
                           onTap: () async {
-                            await Hive.box('userProfile')
-                                .delete('previewAsStudent');
+                            await Hive.box('userProfile').delete('previewAsStudent');
                             if (context.mounted) {
                               context.go('/teacher/dashboard');
                             }
                           },
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                             child: Row(
                               children: const [
-                                Icon(Icons.visibility,
-                                    color: AppTheme.violet, size: 20),
+                                Icon(Icons.visibility, color: AppTheme.violet, size: 20),
                                 SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
@@ -479,14 +464,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                     ),
                                   ),
                                 ),
-                                Text('Exit preview',
-                                    style: TextStyle(
-                                      color: AppTheme.violet,
-                                      fontWeight: FontWeight.w600,
-                                    )),
+                                Text(
+                                  'Exit preview',
+                                  style: TextStyle(
+                                    color: AppTheme.violet,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                                 SizedBox(width: 4),
-                                Icon(Icons.chevron_right,
-                                    color: AppTheme.violet, size: 18),
+                                Icon(Icons.chevron_right, color: AppTheme.violet, size: 18),
                               ],
                             ),
                           ),
@@ -516,9 +502,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                       gradient: AppTheme.primaryGradient,
                                       boxShadow: [
                                         BoxShadow(
-                                          color: AppTheme.violet.withValues(
-                                            alpha: 0.3,
-                                          ),
+                                          color: AppTheme.violet.withValues(alpha: 0.3),
                                           blurRadius: 8,
                                           offset: const Offset(0, 2),
                                         ),
@@ -558,17 +542,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Assignments ────────────────────────────────────
                   if (assignmentState.assignments.isNotEmpty) ...[
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Row(
                         children: [
-                          const Icon(
-                            Icons.assignment,
-                            color: AppTheme.violet,
-                            size: 20,
-                          ),
+                          const Icon(Icons.assignment, color: AppTheme.violet, size: 20),
                           const SizedBox(width: 8),
                           Text(
                             'Assignments',
@@ -588,8 +565,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
                         itemBuilder: (context, index) {
                           final assignment = assignmentState.assignments[index];
-                          final progress =
-                              assignmentState.progressMap[assignment.id];
+                          final progress = assignmentState.progressMap[assignment.id];
                           final mastered = progress?.wordsMastered ?? 0;
                           final total = assignment.wordCount;
                           final pct = total > 0 ? mastered / total : 0.0;
@@ -597,22 +573,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                           return GestureDetector(
                             onTap: () async {
-                              if (_isLaunchingAssignment)
-                                return; // Locked while launching
+                              if (_isLaunchingAssignment) return; // Locked while launching
                               setState(() => _isLaunchingAssignment = true);
                               try {
                                 // Fetch words for the assigned unit (same as library)
-                                final words =
-                                    await WordSessionService.selectSessionWords(
-                                      unitId: assignment.unitId,
-                                    );
+                                final words = await WordSessionService.selectSessionWords(
+                                  unitId: assignment.unitId,
+                                );
                                 if (words.isEmpty) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text(
-                                          'No words found for this assignment.',
-                                        ),
+                                        content: Text('No words found for this assignment.'),
                                       ),
                                     );
                                   }
@@ -646,36 +618,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               } catch (e) {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Error loading assignment: $e',
-                                      ),
-                                    ),
+                                    SnackBar(content: Text('Error loading assignment: $e')),
                                   );
                                 }
                               } finally {
-                                if (mounted)
-                                  setState(
-                                    () => _isLaunchingAssignment = false,
-                                  );
+                                if (mounted) setState(() => _isLaunchingAssignment = false);
                               }
                             },
                             child: Container(
                               width: 240,
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color:
-                                    isDark
-                                        ? const Color(0xFF1A1D3A)
-                                        : Colors.white,
+                                color: isDark ? const Color(0xFF1A1D3A) : Colors.white,
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color:
                                       isCompleted
                                           ? Colors.green.withValues(alpha: 0.3)
-                                          : AppTheme.violet.withValues(
-                                            alpha: 0.2,
-                                          ),
+                                          : AppTheme.violet.withValues(alpha: 0.2),
                                 ),
                                 boxShadow: [
                                   BoxShadow(
@@ -689,8 +649,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Expanded(
                                         child: Text(
@@ -713,10 +672,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                   ),
                                   Text(
                                     assignment.bookTitle,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
+                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -728,19 +684,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                           value: pct,
                                           backgroundColor:
                                               isCompleted
-                                                  ? Colors.green.withValues(
-                                                    alpha: 0.2,
-                                                  )
-                                                  : AppTheme.violet.withValues(
-                                                    alpha: 0.2,
-                                                  ),
-                                          color:
-                                              isCompleted
-                                                  ? Colors.green
-                                                  : AppTheme.violet,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
+                                                  ? Colors.green.withValues(alpha: 0.2)
+                                                  : AppTheme.violet.withValues(alpha: 0.2),
+                                          color: isCompleted ? Colors.green : AppTheme.violet,
+                                          borderRadius: BorderRadius.circular(4),
                                           minHeight: 6,
                                         ),
                                       ),
@@ -750,8 +697,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 12,
-                                          color:
-                                              isCompleted ? Colors.green : null,
+                                          color: isCompleted ? Colors.green : null,
                                         ),
                                       ),
                                     ],
@@ -760,10 +706,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                     const SizedBox(height: 6),
                                     Text(
                                       'Due: ${assignment.dueDate}',
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.orange,
-                                      ),
+                                      style: const TextStyle(fontSize: 10, color: Colors.orange),
                                     ),
                                   ],
                                 ],
@@ -778,19 +721,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Teacher Message ────────────────────────────────
                   if (_teacherMessage != null)
                     Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppTheme.violet.withValues(
-                          alpha: isDark ? 0.15 : 0.1,
-                        ),
+                        color: AppTheme.violet.withValues(alpha: isDark ? 0.15 : 0.1),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppTheme.violet.withValues(alpha: 0.3),
-                        ),
+                        border: Border.all(color: AppTheme.violet.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
@@ -823,29 +759,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Play Today Banner ──────────────────────────────
                   if (needsToPlayToday)
                     Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppTheme.fire.withValues(
-                              alpha: isDark ? 0.15 : 0.1,
-                            ),
-                            AppTheme.amber.withValues(
-                              alpha: isDark ? 0.1 : 0.06,
-                            ),
+                            AppTheme.fire.withValues(alpha: isDark ? 0.15 : 0.1),
+                            AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
                           ],
                         ),
                         borderRadius: AppTheme.borderRadiusMd,
-                        border: Border.all(
-                          color: AppTheme.fire.withValues(alpha: 0.25),
-                        ),
+                        border: Border.all(color: AppTheme.fire.withValues(alpha: 0.25)),
                       ),
                       child: Row(
                         children: [
@@ -868,29 +792,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Rival Card ─────────────────────────────────────
                   if (_rivalName != null)
                     Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppTheme.error.withValues(
-                              alpha: isDark ? 0.12 : 0.08,
-                            ),
-                            AppTheme.violet.withValues(
-                              alpha: isDark ? 0.08 : 0.04,
-                            ),
+                            AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.08),
+                            AppTheme.violet.withValues(alpha: isDark ? 0.08 : 0.04),
                           ],
                         ),
                         borderRadius: AppTheme.borderRadiusMd,
-                        border: Border.all(
-                          color: AppTheme.error.withValues(alpha: 0.2),
-                        ),
+                        border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
                       ),
                       child: Row(
                         children: [
@@ -932,10 +844,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                                   ? AppTheme.textSecondaryDark
                                                   : AppTheme.textSecondaryLight)
                                               : AppTheme.success,
-                                      fontWeight:
-                                          (_rivalXp - xp) <= 0
-                                              ? FontWeight.w600
-                                              : null,
+                                      fontWeight: (_rivalXp - xp) <= 0 ? FontWeight.w600 : null,
                                       fontSize: 13,
                                     ),
                                   ),
@@ -949,10 +858,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                   // ─── Quick Links Row ────────────────────────────────
                   Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
                       children: [
                         _QuickChip(
@@ -979,10 +885,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Practice Button ────────────────────────────────
                   if (canPlay)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Container(
                         width: double.infinity,
                         height: 54,
@@ -1005,11 +908,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
-                                  Icons.play_circle_fill_rounded,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
+                                Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 24),
                                 SizedBox(width: 8),
                                 Text(
                                   'Play',
@@ -1035,17 +934,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       children: [
                         Text(
                           'Your Vocabulary',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                 color:
                                     isDark
@@ -1074,10 +968,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       : ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         itemCount: vocabList.length,
                         itemBuilder: (context, index) {
                           final vocab = vocabList[index];
@@ -1085,9 +976,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             key: ValueKey(vocab.id),
                             vocab: vocab,
                             onDelete: () {
-                              ref
-                                  .read(vocabProvider.notifier)
-                                  .deleteVocab(vocab.id);
+                              ref.read(vocabProvider.notifier).deleteVocab(vocab.id);
                             },
                             onEdit: () => _showEditDialog(vocab),
                           );
@@ -1097,10 +986,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // ─── Progress bar (< 4 words) ──────────────────────
                   if (!canPlay)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24.0,
-                        vertical: 8.0,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
                       child: Column(
                         children: [
                           Container(
@@ -1162,8 +1048,7 @@ class _FriendsAppBarButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final count =
-        ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
+    final count = ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return IconButton(
@@ -1178,8 +1063,7 @@ class _FriendsAppBarButton extends ConsumerWidget {
               right: -5,
               top: -4,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
                   color: AppTheme.error,
                   borderRadius: BorderRadius.circular(9),
@@ -1188,8 +1072,7 @@ class _FriendsAppBarButton extends ConsumerWidget {
                     width: 1.5,
                   ),
                 ),
-                constraints:
-                    const BoxConstraints(minWidth: 16, minHeight: 16),
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                 child: Text(
                   count > 9 ? '9+' : '$count',
                   textAlign: TextAlign.center,
@@ -1215,11 +1098,7 @@ class _QuickChip extends StatelessWidget {
   final VoidCallback onTap;
   final bool isDark;
 
-  const _QuickChip({
-    required this.label,
-    required this.onTap,
-    required this.isDark,
-  });
+  const _QuickChip({required this.label, required this.onTap, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
@@ -1247,10 +1126,7 @@ class _QuickChip extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color:
-                  isDark
-                      ? AppTheme.textSecondaryDark
-                      : AppTheme.textSecondaryLight,
+              color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
             ),
           ),
         ),
@@ -1264,10 +1140,8 @@ class _QuickChip extends StatelessWidget {
 class _StreakMilestoneDialog extends StatefulWidget {
   final int milestone;
   final int currentStreak;
-  const _StreakMilestoneDialog({
-    required this.milestone,
-    required this.currentStreak,
-  });
+
+  const _StreakMilestoneDialog({required this.milestone, required this.currentStreak});
 
   @override
   State<_StreakMilestoneDialog> createState() => _StreakMilestoneDialogState();
@@ -1282,10 +1156,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
     _scaleAnim = CurvedAnimation(parent: _controller, curve: Curves.elasticOut);
     _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
     _controller.forward();
@@ -1301,11 +1172,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (emoji, title, message) = switch (widget.milestone) {
-      3 => (
-        '🔥',
-        'You\'re on a roll!',
-        '${widget.currentStreak}-day streak! Keep it up!',
-      ),
+      3 => ('🔥', 'You\'re on a roll!', '${widget.currentStreak}-day streak! Keep it up!'),
       7 => ('💪', 'One week strong!', 'You\'re a habit now. Incredible!'),
       14 => ('🏆', 'Two weeks!', 'You\'re in the top players. Amazing!'),
       30 => ('👑', 'One month!', 'You are LEGENDARY. Unstoppable!'),
@@ -1317,10 +1184,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
       child: ScaleTransition(
         scale: _scaleAnim,
         child: AlertDialog(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 32,
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1344,10 +1208,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
               ),
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 10,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -1356,9 +1217,7 @@ class _StreakMilestoneDialogState extends State<_StreakMilestoneDialog>
                     ],
                   ),
                   borderRadius: AppTheme.borderRadiusSm,
-                  border: Border.all(
-                    color: AppTheme.fire.withValues(alpha: 0.2),
-                  ),
+                  border: Border.all(color: AppTheme.fire.withValues(alpha: 0.2)),
                 ),
                 child: Text(
                   '🔥 ${widget.currentStreak}-day streak',

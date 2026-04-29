@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:vocab_game/services/notification_service.dart';
 
 import '../../providers/friendship_provider.dart';
 import '../../services/duel_service.dart';
-import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 
 /// Duel lobby — two tabs: Challenge classmates + View incoming invites.
@@ -40,6 +40,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
   final Set<String> _navigatedDuels = <String>{};
 
   String? get _classCode => Hive.box('userProfile').get('classCode') as String?;
+
   String? get _userId => Hive.box('userProfile').get('id') as String?;
 
   @override
@@ -72,57 +73,56 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final userId = _userId;
     if (userId == null) return;
 
-    _pendingDuelsChannel = Supabase.instance.client
-        .channel('duel_lobby_$userId')
-        // Challenger side: fires on every UPDATE to my own duels rows. The
-        // filter cannot express "status changed to active", so the callback
-        // gets called on every score update during the game too — the Set
-        // dedup below ensures we navigate exactly once per duelId.
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'duels',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'challenger_id',
-            value: userId,
-          ),
-          callback: _onChallengerDuelUpdate,
-        )
-        // Opponent side: same dedup applies — accepting a duel pushes the
-        // game route directly, but a stray realtime event shouldn't cause
-        // a second push.
-        .onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'duels',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'opponent_id',
-            value: userId,
-          ),
-          callback: _onOpponentDuelUpdate,
-        )
-        // New invite arrived for me — refresh list, fire local notification.
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'duels',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'opponent_id',
-            value: userId,
-          ),
-          callback: (payload) {
-            if (!mounted) return;
-            _loadData();
-            final challenger =
-                payload.newRecord['challenger_username'] as String? ??
-                    'Someone';
-            NotificationService.notifyDuelChallenge(challenger);
-          },
-        )
-        .subscribe();
+    _pendingDuelsChannel =
+        Supabase.instance.client
+            .channel('duel_lobby_$userId')
+            // Challenger side: fires on every UPDATE to my own duels rows. The
+            // filter cannot express "status changed to active", so the callback
+            // gets called on every score update during the game too — the Set
+            // dedup below ensures we navigate exactly once per duelId.
+            .onPostgresChanges(
+              event: PostgresChangeEvent.update,
+              schema: 'public',
+              table: 'duels',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'challenger_id',
+                value: userId,
+              ),
+              callback: _onChallengerDuelUpdate,
+            )
+            // Opponent side: same dedup applies — accepting a duel pushes the
+            // game route directly, but a stray realtime event shouldn't cause
+            // a second push.
+            .onPostgresChanges(
+              event: PostgresChangeEvent.update,
+              schema: 'public',
+              table: 'duels',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'opponent_id',
+                value: userId,
+              ),
+              callback: _onOpponentDuelUpdate,
+            )
+            // New invite arrived for me — refresh list, fire local notification.
+            .onPostgresChanges(
+              event: PostgresChangeEvent.insert,
+              schema: 'public',
+              table: 'duels',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'opponent_id',
+                value: userId,
+              ),
+              callback: (payload) {
+                if (!mounted) return;
+                _loadData();
+                final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
+                NotificationService.notifyDuelChallenge(challenger);
+              },
+            )
+            .subscribe();
   }
 
   void _onChallengerDuelUpdate(PostgresChangePayload payload) {
@@ -161,20 +161,16 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     }
   }
 
-  void _navigateToGame(
-    Map<String, dynamic> duelData, {
-    required bool isChallenger,
-  }) {
+  void _navigateToGame(Map<String, dynamic> duelData, {required bool isChallenger}) {
     if (!mounted) return;
     final words = List<Map<String, dynamic>>.from(
-        (duelData['word_set'] as List)
-            .map((w) => Map<String, dynamic>.from(w)));
+      (duelData['word_set'] as List).map((w) => Map<String, dynamic>.from(w)),
+    );
 
-    context.push('/duels/game', extra: {
-      'duelId': duelData['id'] as String,
-      'words': words,
-      'isChallenger': isChallenger,
-    });
+    context.push(
+      '/duels/game',
+      extra: {'duelId': duelData['id'] as String, 'words': words, 'isChallenger': isChallenger},
+    );
   }
 
   Future<void> _loadData() async {
@@ -202,20 +198,14 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
         final duel = Map<String, dynamic>.from(activeData.first as Map);
         final duelId = duel['id'] as String?;
         if (duelId != null && _navigatedDuels.add(duelId)) {
-          _navigateToGame(
-            duel,
-            isChallenger: duel['challenger_id'] == userId,
-          );
+          _navigateToGame(duel, isChallenger: duel['challenger_id'] == userId);
         }
         return; // Don't render lobby behind the game.
       }
 
       // Fetch teacher ID from classes table for double-exclusion
-      final classData = await supabase
-          .from('classes')
-          .select('teacher_id')
-          .eq('code', classCode)
-          .maybeSingle();
+      final classData =
+          await supabase.from('classes').select('teacher_id').eq('code', classCode).maybeSingle();
       final teacherId = classData?['teacher_id'] as String?;
 
       var classmatesQuery = supabase
@@ -256,10 +246,8 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
         final expired = <Map<String, dynamic>>[];
         final active = <Map<String, dynamic>>[];
         for (final duel in pending) {
-          final createdAt = DateTime.tryParse(
-              duel['created_at']?.toString() ?? '');
-          if (createdAt != null &&
-              now.difference(createdAt).inSeconds > 60) {
+          final createdAt = DateTime.tryParse(duel['created_at']?.toString() ?? '');
+          if (createdAt != null && now.difference(createdAt).inSeconds > 60) {
             expired.add(duel);
           } else {
             active.add(duel);
@@ -274,14 +262,12 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
         setState(() {
           _classmates = List<Map<String, dynamic>>.from(classmatesData);
           _pendingDuels = active;
-          _incomingInvites = List<Map<String, dynamic>>.from(invitesData)
-              .where((d) {
-            final createdAt = DateTime.tryParse(
-                d['created_at']?.toString() ?? '');
-            // Also hide expired incoming invites (>60s)
-            return createdAt == null ||
-                now.difference(createdAt).inSeconds <= 60;
-          }).toList();
+          _incomingInvites =
+              List<Map<String, dynamic>>.from(invitesData).where((d) {
+                final createdAt = DateTime.tryParse(d['created_at']?.toString() ?? '');
+                // Also hide expired incoming invites (>60s)
+                return createdAt == null || now.difference(createdAt).inSeconds <= 60;
+              }).toList();
           _loading = false;
         });
 
@@ -308,7 +294,9 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     if (words.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No words available for duel. Add words to the library first.')),
+          const SnackBar(
+            content: Text('No words available for duel. Add words to the library first.'),
+          ),
         );
       }
       return;
@@ -360,13 +348,11 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
     final isDark = theme.brightness == Brightness.dark;
     final classCode = _classCode;
     final hasClass = classCode != null && classCode.isNotEmpty;
-    final friendRequestsCount =
-        ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
+    final friendRequestsCount = ref.watch(incomingFriendRequestsProvider).valueOrNull?.length ?? 0;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Duel Arena',
-            style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Duel Arena', style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
             tooltip: 'Friends',
@@ -380,20 +366,16 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                     right: -5,
                     top: -4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
                         color: AppTheme.error,
                         borderRadius: BorderRadius.circular(9),
                         border: Border.all(
-                          color: isDark
-                              ? const Color(0xFF0F1228)
-                              : Colors.white,
+                          color: isDark ? const Color(0xFF0F1228) : Colors.white,
                           width: 1.5,
                         ),
                       ),
-                      constraints: const BoxConstraints(
-                          minWidth: 16, minHeight: 16),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                       child: Text(
                         friendRequestsCount > 9 ? '9+' : '$friendRequestsCount',
                         textAlign: TextAlign.center,
@@ -420,68 +402,67 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
             onPressed: _loadData,
           ),
         ],
-        bottom: hasClass
-            ? TabBar(
-                controller: _tabController,
-                indicatorColor: AppTheme.violet,
-                labelColor: isDark ? Colors.white : Colors.black87,
-                unselectedLabelColor: isDark
-                    ? AppTheme.textSecondaryDark
-                    : AppTheme.textSecondaryLight,
-                labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w700, fontSize: 14),
-                tabs: [
-                  const Tab(text: '⚔️ Challenge'),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('📩 Invites'),
-                        if (_incomingInvites.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppTheme.error,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_incomingInvites.length}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+        bottom:
+            hasClass
+                ? TabBar(
+                  controller: _tabController,
+                  indicatorColor: AppTheme.violet,
+                  labelColor: isDark ? Colors.white : Colors.black87,
+                  unselectedLabelColor:
+                      isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  tabs: [
+                    const Tab(text: '⚔️ Challenge'),
+                    Tab(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('📩 Invites'),
+                          if (_incomingInvites.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${_incomingInvites.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : null,
+                  ],
+                )
+                : null,
       ),
       body: Container(
         decoration: BoxDecoration(
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
         ),
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : !hasClass
+        child:
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : !hasClass
                 ? _buildNoClassState(theme, isDark)
                 : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      // Tab 1: Challenge classmates
-                      _classmates.isEmpty
-                          ? _buildNoClassmatesState(theme, isDark)
-                          : _buildClassmatesList(theme),
-                      // Tab 2: Incoming invites
-                      _buildInvitesList(theme),
-                    ],
-                  ),
+                  controller: _tabController,
+                  children: [
+                    // Tab 1: Challenge classmates
+                    _classmates.isEmpty
+                        ? _buildNoClassmatesState(theme, isDark)
+                        : _buildClassmatesList(theme),
+                    // Tab 2: Incoming invites
+                    _buildInvitesList(theme),
+                  ],
+                ),
       ),
     );
   }
@@ -503,17 +484,16 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                 child: const Text('⚔️', style: TextStyle(fontSize: 56)),
               ),
               const SizedBox(height: 24),
-              Text('Join a class to duel!',
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Text(
+                'Join a class to duel!',
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 8),
               Text(
                 'You need to be in a class to challenge classmates.\nGo to Profile → Join Class to get started.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: isDark
-                      ? AppTheme.textSecondaryDark
-                      : AppTheme.textSecondaryLight,
+                  color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                   height: 1.5,
                 ),
               ),
@@ -529,8 +509,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                   label: const Text('Go to Profile'),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.transparent,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   ),
                 ),
               ),
@@ -555,17 +534,15 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
             child: const Text('👥', style: TextStyle(fontSize: 56)),
           ),
           const SizedBox(height: 24),
-          Text('No classmates yet',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              )),
+          Text(
+            'No classmates yet',
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           Text(
             'Invite friends to join your class!',
             style: TextStyle(
-              color: isDark
-                  ? AppTheme.textSecondaryDark
-                  : AppTheme.textSecondaryLight,
+              color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
             ),
           ),
         ],
@@ -591,14 +568,13 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: isDark
-                  ? AppTheme.darkGlassGradient
-                  : AppTheme.lightGlassGradient,
+              gradient: isDark ? AppTheme.darkGlassGradient : AppTheme.lightGlassGradient,
               borderRadius: AppTheme.borderRadiusMd,
               border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.06),
+                color:
+                    isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.06),
               ),
               boxShadow: AppTheme.shadowSoft,
             ),
@@ -636,20 +612,15 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                     children: [
                       Text(
                         username,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                       ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.amber
-                                  .withValues(alpha: isDark ? 0.15 : 0.1),
+                              color: AppTheme.amber.withValues(alpha: isDark ? 0.15 : 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -667,9 +638,8 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? AppTheme.textSecondaryDark
-                                  : AppTheme.textSecondaryLight,
+                              color:
+                                  isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                             ),
                           ),
                         ],
@@ -679,14 +649,11 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                 ),
                 if (hasPending)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppTheme.fire.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: AppTheme.fire.withValues(alpha: 0.2),
-                      ),
+                      border: Border.all(color: AppTheme.fire.withValues(alpha: 0.2)),
                     ),
                     child: const Text(
                       '⏳ Pending',
@@ -718,12 +685,8 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                       label: const Text('Fight'),
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        textStyle: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                       ),
                     ),
                   ),
@@ -752,18 +715,16 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
               child: const Text('📩', style: TextStyle(fontSize: 48)),
             ),
             const SizedBox(height: 20),
-            Text('No pending invites',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                )),
+            Text(
+              'No pending invites',
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 6),
             Text(
               'When classmates challenge you, invites show here instantly.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: isDark
-                    ? AppTheme.textSecondaryDark
-                    : AppTheme.textSecondaryLight,
+                color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                 height: 1.5,
               ),
             ),
@@ -831,11 +792,9 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                           ),
                           const SizedBox(height: 2),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.violet
-                                  .withValues(alpha: isDark ? 0.12 : 0.08),
+                              color: AppTheme.violet.withValues(alpha: isDark ? 0.12 : 0.08),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -857,8 +816,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () =>
-                            _declineDuel(invite['id'] as String),
+                        onPressed: () => _declineDuel(invite['id'] as String),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
@@ -885,8 +843,10 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                             backgroundColor: Colors.transparent,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
-                          child: const Text('⚔️ Accept',
-                              style: TextStyle(fontWeight: FontWeight.w700)),
+                          child: const Text(
+                            '⚔️ Accept',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
                     ),
@@ -912,8 +872,6 @@ class DuelInvitesScreen extends StatelessWidget {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.go('/duels');
     });
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }

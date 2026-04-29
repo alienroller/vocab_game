@@ -6,6 +6,11 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/standalone.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+@pragma('vm:entry-point')
+void _onDidReceiveBackgroundNotificationResponse(NotificationResponse details) {
+  // payload parse qilasan
+}
+
 class LocalNotificationService {
   LocalNotificationService._();
 
@@ -34,7 +39,7 @@ class LocalNotificationService {
     await _localNotification.initialize(
       settings,
       onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse: _onDidReceiveNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse: _onDidReceiveBackgroundNotificationResponse,
     );
 
     if (!Platform.isAndroid) return;

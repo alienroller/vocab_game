@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:vocab_game/config/environment_constants.dart';
+import 'package:vocab_game/services/key_constants.dart';
+import 'package:vocab_game/services/notification_service.dart';
+import 'package:vocab_game/services/storage_provider.dart';
 
 import '../../theme/app_theme.dart';
 
@@ -12,8 +17,7 @@ class WelcomeScreen extends StatefulWidget {
   State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
-class _WelcomeScreenState extends State<WelcomeScreen>
-    with TickerProviderStateMixin {
+class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateMixin {
   late AnimationController _fadeCtrl;
   late AnimationController _pulseCtrl;
   late Animation<double> _fadeAnim;
@@ -22,20 +26,44 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   @override
   void initState() {
     super.initState();
-    _fadeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
+    _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fadeCtrl.forward();
 
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween(begin: 1.0, end: 1.05).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
-    );
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2000))
+      ..repeat(reverse: true);
+    _pulseAnim = Tween(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final lastRequested = LocalStorageProvider.cache.getString(KeyConstants.lastNotifReqTime);
+
+      bool should = true;
+
+      if (lastRequested.isNotEmpty) {
+        final date = DateTime.tryParse(lastRequested);
+
+        if (date != null) {
+          final diff = DateTime.now().difference(date).inSeconds;
+
+          if (diff < EnvironmentConstants.notificationRequestDiff) should = false;
+        }
+      }
+
+      if (!should) return;
+
+      final hasNotificationPermission = await Permission.notification.isGranted;
+
+      if (hasNotificationPermission) return;
+
+      await NotificationService.instance.requestPermission(onGranted: () {}, onDenied: () {});
+
+      final time = DateTime.now().toIso8601String();
+
+      await LocalStorageProvider.cache.setString(KeyConstants.lastNotifReqTime, time);
+    });
   }
 
   @override
@@ -80,9 +108,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(32),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
                       boxShadow: [
                         BoxShadow(
                           color: AppTheme.violet.withValues(alpha: 0.4),
@@ -91,9 +117,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: Text('🧠', style: TextStyle(fontSize: 56)),
-                    ),
+                    child: const Center(child: Text('🧠', style: TextStyle(fontSize: 56))),
                   ),
                   const SizedBox(height: 36),
                   Text(
@@ -161,18 +185,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           ],
                         ),
                         child: FilledButton(
-                          onPressed: () =>
-                              context.push('/onboarding/username'),
+                          onPressed: () => context.push('/onboarding/username'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: AppTheme.violetDark,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: AppTheme.borderRadiusMd,
-                            ),
-                            textStyle: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: AppTheme.borderRadiusMd),
+                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                           ),
                           child: const Text('Get Started'),
                         ),
@@ -185,19 +203,21 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     height: 50,
                     child: OutlinedButton.icon(
                       onPressed: () => context.push('/recovery'),
-                      icon: Icon(Icons.restore,
-                          size: 20, color: Colors.white.withValues(alpha: 0.9)),
-                      label: Text('I Have an Account',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            fontWeight: FontWeight.w600,
-                          )),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.3)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: AppTheme.borderRadiusMd,
+                      icon: Icon(
+                        Icons.restore,
+                        size: 20,
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
+                      label: Text(
+                        'I Have an Account',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontWeight: FontWeight.w600,
                         ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                        shape: RoundedRectangleBorder(borderRadius: AppTheme.borderRadiusMd),
                       ),
                     ),
                   ),
@@ -227,9 +247,7 @@ class _FeatureChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.12),
             borderRadius: AppTheme.borderRadiusSm,
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
           ),
           child: Text(icon, style: const TextStyle(fontSize: 24)),
         ),

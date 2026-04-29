@@ -12,11 +12,10 @@ class NotificationService {
 
   static final NotificationService instance = NotificationService._();
 
-  Future<void> initialize() async {
-    await LocalNotificationService.instance.initialize();
-
-    await FirebaseService.instance.initialize();
-  }
+  Future<void> initialize() async => await Future.wait([
+    LocalNotificationService.instance.initialize(),
+    FirebaseService.instance.initialize(),
+  ]);
 
   Future<void> requestPermission({
     required PermissionCallback onGranted,
@@ -135,10 +134,7 @@ class NotificationService {
   // disable them granularly in OS settings.
 
   /// New exam invitation arrived for the student's class.
-  static Future<void> notifyNewExam({
-    required String examTitle,
-    required int sessionHashId,
-  }) async {
+  static Future<void> notifyNewExam({required String examTitle, required int sessionHashId}) async {
     try {
       await _plugin.show(
         // Stable id so a re-poll doesn't re-notify the same exam twice
@@ -225,10 +221,5 @@ class NotificationService {
       hash = (hash * 31 + code) & 0x7fffffff;
     }
     return hash;
-  }
-
-  static void _onDidReceiveNotificationResponse(NotificationResponse details) {
-    // Currently no-op. Payload could be used to route the user
-    // to a specific screen when they tap a notification.
   }
 }

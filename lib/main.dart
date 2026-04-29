@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:vocab_game/config/environment_constants.dart';
+import 'package:vocab_game/services/notification_service.dart';
 import 'package:vocab_game/services/storage_provider.dart';
 import 'package:vocab_game/services/version_service.dart';
 
@@ -12,7 +13,6 @@ import 'models/user_profile.dart';
 import 'providers/theme_mode_provider.dart';
 import 'router.dart';
 import 'services/date_utils.dart';
-import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'services/sync_service.dart';
 import 'theme/app_theme.dart';
@@ -41,12 +41,6 @@ void main() async {
   // Must be opened after StorageService.init so the cipher helper works.
   await StorageService.openSecurityBox();
 
-  // Wire local notifications so teacher actions (new exam, new assignment,
-  // pinned message) actually surface to the student even with the app
-  // backgrounded. Permission is requested lazily by home_screen on first
-  // mount so we don't block cold start.
-  await NotificationService.instance.initialize();
-
   await LocalStorageProvider.init();
 
   // Validate build-time constants before using them
@@ -55,9 +49,6 @@ void main() async {
   // Initialize Supabase
   await Supabase.initialize(url: EnvironmentConstants.url, anonKey: EnvironmentConstants.anonKey);
 
-  // // Request notification permission (safe to call on every start—OS won't
-  // // re-prompt if already granted. Covers the recovered-account case.)
-  // await NotificationService.requestPermission(); TODO
 
   // Drain any pending offline syncs
   await SyncService.drainSyncQueue();
@@ -66,6 +57,8 @@ void main() async {
   await _subscribeForCurrentUser();
 
   await AppVersionInfo.instance.init();
+
+  await NotificationService.instance.initialize();
 
   runApp(const ProviderScope(child: VocabGameApp()));
 }
@@ -89,20 +82,20 @@ Future<void> _subscribeForCurrentUser() async {
   if (id == null) return; // Not onboarded yet
 
   // Reset weekXp if a new ISO week has started.
-  final profile = UserProfile()
-    ..id = id
-    ..username = profileBox.get('username', defaultValue: '') as String
-    ..xp = profileBox.get('xp', defaultValue: 0) as int
-    ..level = profileBox.get('level', defaultValue: 1) as int
-    ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
-    ..longestStreak = profileBox.get('longestStreak', defaultValue: 0) as int
-    ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
-    ..classCode = profileBox.get('classCode') as String?
-    ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
-    ..totalWordsAnswered =
-        profileBox.get('totalWordsAnswered', defaultValue: 0) as int
-    ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
-    ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
+  final profile =
+      UserProfile()
+        ..id = id
+        ..username = profileBox.get('username', defaultValue: '') as String
+        ..xp = profileBox.get('xp', defaultValue: 0) as int
+        ..level = profileBox.get('level', defaultValue: 1) as int
+        ..streakDays = profileBox.get('streakDays', defaultValue: 0) as int
+        ..longestStreak = profileBox.get('longestStreak', defaultValue: 0) as int
+        ..lastPlayedDate = profileBox.get('lastPlayedDate') as String?
+        ..classCode = profileBox.get('classCode') as String?
+        ..weekXp = profileBox.get('weekXp', defaultValue: 0) as int
+        ..totalWordsAnswered = profileBox.get('totalWordsAnswered', defaultValue: 0) as int
+        ..totalCorrect = profileBox.get('totalCorrect', defaultValue: 0) as int
+        ..isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
   await _resetWeekXpIfNeeded(profileBox, profile);
 
   // Subscribe to incoming duel challenges — fire and forget is OK here
@@ -158,8 +151,7 @@ Future<void> _subscribeToDuelChallenges(String myId) async {
             value: myId,
           ),
           callback: (payload) {
-            final challenger =
-                payload.newRecord['challenger_username'] as String? ?? 'Someone';
+            final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
             unawaited(NotificationService.notifyDuelChallenge(challenger));
           },
         )

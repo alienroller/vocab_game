@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:vocab_game/services/notification_service.dart';
 
 import '../models/vocab.dart';
 import '../providers/profile_provider.dart';
@@ -48,8 +49,7 @@ class ResultScreen extends ConsumerStatefulWidget {
   ConsumerState<ResultScreen> createState() => _ResultScreenState();
 }
 
-class _ResultScreenState extends ConsumerState<ResultScreen>
-    with TickerProviderStateMixin {
+class _ResultScreenState extends ConsumerState<ResultScreen> with TickerProviderStateMixin {
   bool _synced = false;
   late AnimationController _ringCtrl;
   late Animation<double> _ringAnim;
@@ -65,28 +65,21 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
     final percent = widget.total > 0 ? widget.score / widget.total : 0.0;
 
     // Ring animation
-    _ringCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _ringAnim = Tween(begin: 0.0, end: percent).animate(
-      CurvedAnimation(parent: _ringCtrl, curve: Curves.easeOutCubic),
-    );
+    _ringCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
+    _ringAnim = Tween(
+      begin: 0.0,
+      end: percent,
+    ).animate(CurvedAnimation(parent: _ringCtrl, curve: Curves.easeOutCubic));
 
     // Score counter
-    _countCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _countAnim = IntTween(begin: 0, end: widget.score).animate(
-      CurvedAnimation(parent: _countCtrl, curve: Curves.easeOutCubic),
-    );
+    _countCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000));
+    _countAnim = IntTween(
+      begin: 0,
+      end: widget.score,
+    ).animate(CurvedAnimation(parent: _countCtrl, curve: Curves.easeOutCubic));
 
     // Celebration particles
-    _celebCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2500),
-    );
+    _celebCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2500));
 
     // Stagger animations
     Future.delayed(const Duration(milliseconds: 200), () {
@@ -115,7 +108,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
       correctAnswers: widget.score,
     );
 
-    // await NotificationService.cancelStreakWarning(); //TODO
+    await NotificationService.cancelStreakWarning(); //TODO
   }
 
   @override
@@ -138,15 +131,11 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: Text('${widget.gameName} Results'),
-        automaticallyImplyLeading: false,
-      ),
+      appBar: AppBar(title: Text('${widget.gameName} Results'), automaticallyImplyLeading: false),
       body: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          gradient:
-              isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
         ),
         child: SafeArea(
           child: Stack(
@@ -155,15 +144,16 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
               if (isSuccess)
                 AnimatedBuilder(
                   animation: _celebCtrl,
-                  builder: (context, _) => CustomPaint(
-                    size: MediaQuery.of(context).size,
-                    painter: _CelebrationPainter(
-                      progress: _celebCtrl.value,
-                      color1: AppTheme.violet,
-                      color2: AppTheme.amber,
-                      color3: AppTheme.success,
-                    ),
-                  ),
+                  builder:
+                      (context, _) => CustomPaint(
+                        size: MediaQuery.of(context).size,
+                        painter: _CelebrationPainter(
+                          progress: _celebCtrl.value,
+                          color1: AppTheme.violet,
+                          color2: AppTheme.amber,
+                          color3: AppTheme.success,
+                        ),
+                      ),
                 ),
 
               // Main content
@@ -198,14 +188,15 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                                   const SizedBox(height: 4),
                                   AnimatedBuilder(
                                     animation: _countAnim,
-                                    builder: (context, _) => Text(
-                                      '${_countAnim.value}/${widget.total}',
-                                      style: TextStyle(
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.w900,
-                                        color: accentColor,
-                                      ),
-                                    ),
+                                    builder:
+                                        (context, _) => Text(
+                                          '${_countAnim.value}/${widget.total}',
+                                          style: TextStyle(
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w900,
+                                            color: accentColor,
+                                          ),
+                                        ),
                                   ),
                                 ],
                               ),
@@ -218,18 +209,14 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                     const SizedBox(height: 28),
                     Text(
                       isSuccess ? 'Great Job!' : 'Good Effort!',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       '${widget.total > 0 ? (widget.score / widget.total * 100).round() : 0}% correct',
                       style: TextStyle(
                         fontSize: 16,
-                        color: isDark
-                            ? AppTheme.textSecondaryDark
-                            : AppTheme.textSecondaryLight,
+                        color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
                       ),
                     ),
 
@@ -237,8 +224,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                     if (widget.runXp > 0) ...[
                       const SizedBox(height: 20),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -247,14 +233,12 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                             ],
                           ),
                           borderRadius: AppTheme.borderRadiusMd,
-                          border: Border.all(
-                              color: AppTheme.amber.withValues(alpha: 0.25)),
+                          border: Border.all(color: AppTheme.amber.withValues(alpha: 0.25)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.bolt_rounded,
-                                color: AppTheme.amber, size: 28),
+                            Icon(Icons.bolt_rounded, color: AppTheme.amber, size: 28),
                             const SizedBox(width: 8),
                             Text(
                               '+${widget.runXp} XP this run',
@@ -303,20 +287,20 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                           boxShadow: AppTheme.shadowGlow(AppTheme.violet),
                         ),
                         child: FilledButton.icon(
-                          onPressed: () => context.pushReplacement(
-                            widget.gameRoute,
-                            extra: {
-                              'customWords': widget.customWords,
-                              'assignmentId': widget.assignmentId,
-                              'unitId': widget.unitId,
-                            },
-                          ),
+                          onPressed:
+                              () => context.pushReplacement(
+                                widget.gameRoute,
+                                extra: {
+                                  'customWords': widget.customWords,
+                                  'assignmentId': widget.assignmentId,
+                                  'unitId': widget.unitId,
+                                },
+                              ),
                           icon: const Icon(Icons.replay_rounded),
                           label: const Text('Play Again'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.transparent,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: AppTheme.borderRadiusMd),
+                            shape: RoundedRectangleBorder(borderRadius: AppTheme.borderRadiusMd),
                           ),
                         ),
                       ),
@@ -326,9 +310,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                       onPressed: () => context.go('/home'),
                       icon: const Icon(Icons.home_rounded),
                       label: const Text('Back to Home'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 52),
-                      ),
+                      style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 52)),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -343,10 +325,9 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
 
   void _shareScore() {
     final streak = ref.read(streakProvider);
-    final streakText = streak.displayCount > 1
-        ? ' | 🔥 ${streak.displayCount}-day streak!'
-        : '';
-    final text = '⚡ I just scored ${widget.score}/${widget.total} and earned '
+    final streakText = streak.displayCount > 1 ? ' | 🔥 ${streak.displayCount}-day streak!' : '';
+    final text =
+        '⚡ I just scored ${widget.score}/${widget.total} and earned '
         '+${widget.runXp} XP on VocabGame!$streakText\n'
         'Try to beat me! 📚';
     Share.share(text);
@@ -373,9 +354,7 @@ class _BankedXpLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final muted = isDark
-        ? AppTheme.textSecondaryDark
-        : AppTheme.textSecondaryLight;
+    final muted = isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight;
 
     final String label;
     final Color color;
@@ -407,11 +386,7 @@ class _BankedXpLine extends StatelessWidget {
             child: Text(
               label,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color),
             ),
           ),
         ],
@@ -427,11 +402,7 @@ class _ScoreRingPainter extends CustomPainter {
   final Color color;
   final bool isDark;
 
-  _ScoreRingPainter({
-    required this.progress,
-    required this.color,
-    required this.isDark,
-  });
+  _ScoreRingPainter({required this.progress, required this.color, required this.isDark});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -443,9 +414,8 @@ class _ScoreRingPainter extends CustomPainter {
       center,
       radius,
       Paint()
-        ..color = isDark
-            ? Colors.white.withValues(alpha: 0.06)
-            : Colors.black.withValues(alpha: 0.04)
+        ..color =
+            isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 10,
     );
@@ -458,12 +428,12 @@ class _ScoreRingPainter extends CustomPainter {
       colors: [color.withValues(alpha: 0.6), color],
     );
 
-    final arcPaint = Paint()
-      ..shader = gradient.createShader(
-          Rect.fromCircle(center: center, radius: radius))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round;
+    final arcPaint =
+        Paint()
+          ..shader = gradient.createShader(Rect.fromCircle(center: center, radius: radius))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 10
+          ..strokeCap = StrokeCap.round;
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
@@ -490,8 +460,7 @@ class _ScoreRingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ScoreRingPainter old) =>
-      old.progress != progress;
+  bool shouldRepaint(covariant _ScoreRingPainter old) => old.progress != progress;
 }
 
 // ─── Celebration Painter ──────────────────────────────────────────────
@@ -520,16 +489,15 @@ class _CelebrationPainter extends CustomPainter {
       final drift = (random.nextDouble() - 0.5) * 100;
 
       final particleProgress = (progress * 1.5 - i * 0.02).clamp(0.0, 1.0);
-      final opacity = particleProgress < 0.7
-          ? 1.0
-          : 1.0 - ((particleProgress - 0.7) / 0.3);
+      final opacity = particleProgress < 0.7 ? 1.0 : 1.0 - ((particleProgress - 0.7) / 0.3);
 
       final x = startX + drift * particleProgress;
       final y = startY + (endY - startY) * particleProgress;
 
-      final paint = Paint()
-        ..color = colors[i % colors.length].withValues(alpha: opacity * 0.7)
-        ..style = PaintingStyle.fill;
+      final paint =
+          Paint()
+            ..color = colors[i % colors.length].withValues(alpha: opacity * 0.7)
+            ..style = PaintingStyle.fill;
 
       final particleSize = 3.0 + random.nextDouble() * 5;
       if (i % 3 == 0) {
@@ -537,10 +505,7 @@ class _CelebrationPainter extends CustomPainter {
       } else {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromCenter(
-                center: Offset(x, y),
-                width: particleSize * 1.5,
-                height: particleSize),
+            Rect.fromCenter(center: Offset(x, y), width: particleSize * 1.5, height: particleSize),
             Radius.circular(particleSize / 3),
           ),
           paint,
@@ -550,6 +515,5 @@ class _CelebrationPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _CelebrationPainter old) =>
-      old.progress != progress;
+  bool shouldRepaint(covariant _CelebrationPainter old) => old.progress != progress;
 }

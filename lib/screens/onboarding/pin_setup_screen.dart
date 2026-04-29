@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 class PinSetupScreen extends ConsumerStatefulWidget {
   final bool isTeacher;
   final String username;
+
   const PinSetupScreen({super.key, this.isTeacher = false, this.username = ''});
 
   @override
@@ -65,7 +66,9 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
             setState(() => _saving = false);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Username was just taken by someone else. Please go back and choose another.'),
+                content: Text(
+                  'Username was just taken by someone else. Please go back and choose another.',
+                ),
               ),
             );
           }
@@ -87,9 +90,6 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
             .read(profileProvider.notifier)
             .createProfile(id: userId, username: widget.username, isTeacher: widget.isTeacher);
 
-        // Request notification permission (iOS + Android 13+)
-        // await NotificationService.requestPermission(); TODO
-
         if (!mounted) return;
 
         if (widget.isTeacher) {
@@ -99,15 +99,15 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
         }
       } else {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save PIN. Please try again.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Failed to save PIN. Please try again.')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error creating profile: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error creating profile: $e')));
         setState(() => _saving = false);
       }
     }
@@ -121,216 +121,197 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Set Recovery PIN'),
-      ),
+      appBar: AppBar(title: const Text('Set Recovery PIN')),
       body: Container(
         decoration: BoxDecoration(
           gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
         ),
         child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Explanation
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
-                    borderRadius: AppTheme.borderRadiusSm,
-                    border: Border.all(
-                      color: AppTheme.amber.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline,
-                          color: Colors.amber, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This PIN lets you recover your account if you reinstall the app. Write it down or remember it!',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // BUG O6 — teachers risk losing access to ALL their classes
-                // (and the only way to delete a class is to remove students
-                // first, which a recovered teacher can't do without the PIN).
-                // Surface the higher stakes explicitly.
-                if (widget.isTeacher) ...[
-                  const SizedBox(height: 12),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Explanation
                   Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.06),
+                      color: AppTheme.amber.withValues(alpha: isDark ? 0.1 : 0.06),
                       borderRadius: AppTheme.borderRadiusSm,
-                      border: Border.all(
-                        color: AppTheme.error.withValues(alpha: 0.25),
-                      ),
+                      border: Border.all(color: AppTheme.amber.withValues(alpha: 0.25)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.shield_outlined,
-                            color: AppTheme.error, size: 24),
+                        const Icon(Icons.info_outline, color: Colors.amber, size: 28),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Teachers: forgetting this PIN means losing '
-                            'access to every class you create. Save it '
-                            'somewhere safe (not just in your head).',
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            'This PIN lets you recover your account if you reinstall the app. Write it down or remember it!',
+                            style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-                const SizedBox(height: 32),
-
-                // PIN field
-                Text('Choose a 6-digit PIN',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    )),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _pinController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  obscureText: _obscurePin,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 8,
-                  ),
-                  textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                    hintText: '••••••',
-                    counterText: '',
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.4),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscurePin
-                          ? Icons.visibility_off
-                          : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscurePin = !_obscurePin),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.length != 6) {
-                      return 'PIN must be exactly 6 digits';
-                    }
-                    if (v == '000000' || v == '123456' || v == '111111') {
-                      return 'Please choose a stronger PIN';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-
-                // Confirm PIN field
-                Text('Confirm PIN',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    )),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _confirmController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  obscureText: _obscureConfirm,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 8,
-                  ),
-                  textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                    hintText: '••••••',
-                    counterText: '',
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.4),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureConfirm
-                          ? Icons.visibility_off
-                          : Icons.visibility),
-                      onPressed: () =>
-                          setState(() => _obscureConfirm = !_obscureConfirm),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v != _pinController.text) {
-                      return 'PINs do not match';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 40),
-
-                // Save button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: Container(
-                    decoration: !_saving
-                        ? BoxDecoration(
-                            gradient: AppTheme.primaryGradient,
-                            borderRadius: AppTheme.borderRadiusMd,
-                            boxShadow: AppTheme.shadowGlow(AppTheme.violet),
-                          )
-                        : null,
-                    child: FilledButton(
-                      onPressed: _saving ? null : _savePin,
-                      style: FilledButton.styleFrom(
-                        backgroundColor:
-                            !_saving ? Colors.transparent : null,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: AppTheme.borderRadiusMd,
-                        ),
+                  // BUG O6 — teachers risk losing access to ALL their classes
+                  // (and the only way to delete a class is to remove students
+                  // first, which a recovered teacher can't do without the PIN).
+                  // Surface the higher stakes explicitly.
+                  if (widget.isTeacher) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.06),
+                        borderRadius: AppTheme.borderRadiusSm,
+                        border: Border.all(color: AppTheme.error.withValues(alpha: 0.25)),
                       ),
-                      child: _saving
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text('Save & Continue',
-                              style: TextStyle(fontSize: 18)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shield_outlined, color: AppTheme.error, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Teachers: forgetting this PIN means losing '
+                              'access to every class you create. Save it '
+                              'somewhere safe (not just in your head).',
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 32),
+
+                  // PIN field
+                  Text(
+                    'Choose a 6-digit PIN',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _pinController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    obscureText: _obscurePin,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 8,
+                    ),
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      hintText: '••••••',
+                      counterText: '',
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscurePin ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                      ),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.length != 6) {
+                        return 'PIN must be exactly 6 digits';
+                      }
+                      if (v == '000000' || v == '123456' || v == '111111') {
+                        return 'Please choose a stronger PIN';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Confirm PIN field
+                  Text(
+                    'Confirm PIN',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _confirmController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    obscureText: _obscureConfirm,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 8,
+                    ),
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      hintText: '••••••',
+                      counterText: '',
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                      ),
+                    ),
+                    validator: (v) {
+                      if (v != _pinController.text) {
+                        return 'PINs do not match';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 40),
+
+                  // Save button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: Container(
+                      decoration:
+                          !_saving
+                              ? BoxDecoration(
+                                gradient: AppTheme.primaryGradient,
+                                borderRadius: AppTheme.borderRadiusMd,
+                                boxShadow: AppTheme.shadowGlow(AppTheme.violet),
+                              )
+                              : null,
+                      child: FilledButton(
+                        onPressed: _saving ? null : _savePin,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: !_saving ? Colors.transparent : null,
+                          shape: RoundedRectangleBorder(borderRadius: AppTheme.borderRadiusMd),
+                        ),
+                        child:
+                            _saving
+                                ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : const Text('Save & Continue', style: TextStyle(fontSize: 18)),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ),
     );
