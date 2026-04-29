@@ -21,7 +21,9 @@
       "Bash(git worktree *)",
       "Bash(xargs wc *)",
       "Bash(find \"C:\\\\Users\\\\99899\\\\VocabGame\\\\vocab_game\" -name \"*.sql\" -type f -exec grep -l \"CREATE TABLE.*classes\\\\|CREATE TABLE \\\\\"classes\\\\\"\" {} \\\\;)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(ls -la .git/hooks/pre-commit* .githooks)",
+      "Bash(cat .pre-commit-config.yaml)"
     ]
   }
 }

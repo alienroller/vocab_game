@@ -119,7 +119,7 @@ class _DuelLobbyScreenState extends ConsumerState<DuelLobbyScreen>
                 if (!mounted) return;
                 _loadData();
                 final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
-                NotificationService.notifyDuelChallenge(challenger);
+                
               },
             )
             .subscribe();

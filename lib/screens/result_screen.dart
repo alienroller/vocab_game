@@ -108,7 +108,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen> with TickerProvider
       correctAnswers: widget.score,
     );
 
-    await NotificationService.cancelStreakWarning(); //TODO
+    //await NotificationService.cancelStreakWarning(); //TODO
   }
 
   @override

@@ -58,7 +58,7 @@ void main() async {
 
   await AppVersionInfo.instance.init();
 
-  await NotificationService.instance.initialize();
+  //await NotificationService.instance.initialize();
 
   runApp(const ProviderScope(child: VocabGameApp()));
 }
@@ -152,7 +152,7 @@ Future<void> _subscribeToDuelChallenges(String myId) async {
           ),
           callback: (payload) {
             final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
-            unawaited(NotificationService.notifyDuelChallenge(challenger));
+            //unawaited(NotificationService.notifyDuelChallenge(challenger));
           },
         )
         .subscribe((status, [error]) {
