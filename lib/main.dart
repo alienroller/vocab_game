@@ -33,11 +33,19 @@ void main() async {
   // best when they replay a library/assignment unit.
   await Hive.openBox('unitBestXp');
 
+  // Tracks which exam / assignment / message ids the student has already
+  // seen, so polling diffs only notify on truly-new items (BUG C1).
+  await Hive.openBox('notif_state');
+
   // Security box holds the Hive encryption key and the PIN rate-limit state.
   // Must be opened after StorageService.init so the cipher helper works.
   await StorageService.openSecurityBox();
 
-  // await NotificationService.instance.initialize();
+  // Wire local notifications so teacher actions (new exam, new assignment,
+  // pinned message) actually surface to the student even with the app
+  // backgrounded. Permission is requested lazily by home_screen on first
+  // mount so we don't block cold start.
+  await NotificationService.instance.initialize();
 
   await LocalStorageProvider.init();
 
@@ -150,8 +158,9 @@ Future<void> _subscribeToDuelChallenges(String myId) async {
             value: myId,
           ),
           callback: (payload) {
-            final challenger = payload.newRecord['challenger_username'] as String? ?? 'Someone';
-            // NotificationService.notifyDuelChallenge(challenger); TODO
+            final challenger =
+                payload.newRecord['challenger_username'] as String? ?? 'Someone';
+            unawaited(NotificationService.notifyDuelChallenge(challenger));
           },
         )
         .subscribe((status, [error]) {

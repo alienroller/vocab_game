@@ -297,17 +297,29 @@ class _TeacherExamLobbyScreenState
     final session = lobby.session!;
     final totalQ = session.questionCount;
 
-    // Calculate class averages from progress data.
-    final active = lobby.progress.where((p) =>
-        p.status == 'in_progress' || p.status == 'completed');
-    final avgCorrect = active.isEmpty
-        ? 0.0
-        : active.map((p) => p.correct).reduce((a, b) => a + b) /
-            active.length;
-    final avgAnswered = active.isEmpty
-        ? 0.0
-        : active.map((p) => p.answered).reduce((a, b) => a + b) /
-            active.length;
+    // BUG E7 — used to compute averages over the *active* set
+    // (in_progress + completed). When 1 of 10 finished and 9 hadn't
+    // started, the row showed "Avg score: 8.0" which read as if the
+    // class were crushing it. Now:
+    //   • Avg score weights over `joinedCount` (everyone who showed up)
+    //     while the exam is in progress so it deflates honestly while
+    //     most students haven't completed yet.
+    //   • Once the session is `completed`, weight over completedCount
+    //     (the final-result interpretation).
+    final answers = lobby.progress.where(
+        (p) => p.status == 'in_progress' || p.status == 'completed');
+    final summedCorrect = answers.fold<int>(0, (a, b) => a + b.correct);
+    final summedAnswered = answers.fold<int>(0, (a, b) => a + b.answered);
+
+    final inProgress = session.isInProgress;
+    final scoreDenominator = inProgress
+        ? (lobby.joinedCount > 0 ? lobby.joinedCount : 1)
+        : (lobby.completedCount > 0 ? lobby.completedCount : 1);
+    final avgCorrect = summedCorrect / scoreDenominator;
+    final avgAnswered = summedAnswered / scoreDenominator;
+    final scoreLabel = inProgress
+        ? 'Avg score (live)'
+        : 'Avg score';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -323,7 +335,7 @@ class _TeacherExamLobbyScreenState
         children: [
           _stat('Avg progress',
               '${avgAnswered.toStringAsFixed(1)} / $totalQ'),
-          _stat('Avg score', avgCorrect.toStringAsFixed(1)),
+          _stat(scoreLabel, avgCorrect.toStringAsFixed(1)),
           _stat('Finished',
               '${lobby.completedCount} / ${lobby.joinedCount}'),
         ],
@@ -383,21 +395,49 @@ class _TeacherExamLobbyScreenState
     if (session == null) return null;
 
     if (session.isLobby) {
+      // BUG E3 — old code would happily start an exam with zero joined
+      // students, which immediately marks every invitee absent and
+      // produces a useless results screen. Now we disable Start until at
+      // least one student has joined and tell the teacher why.
+      final canStart = lobby.joinedCount > 0;
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.green,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            onPressed: () => _start(context, ref),
-            icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
-            label: const Text('Start exam',
-                style: TextStyle(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!canStart)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Waiting for at least one student to join…',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: canStart ? Colors.green : Colors.grey,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: canStart ? () => _start(context, ref) : null,
+                icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
+                label: Text(
+                  canStart
+                      ? 'Start exam (${lobby.joinedCount} joined)'
+                      : 'Start exam',
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white)),
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );

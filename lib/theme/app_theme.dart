@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// Grade-color preset chosen by the teacher (BUG E4).
+///
+/// • [lenient] — default; vocab-learning friendly bands (70/55/40 %).
+/// • [strict]  — US-style bands (90/70/60 %).
+enum GradeBand { lenient, strict }
+
 /// VocabGame Design System
 ///
 /// Dark-first with a polished light variant.
@@ -151,6 +157,40 @@ class AppTheme {
         ),
         boxShadow: shadowSoft,
       );
+
+  // ─── Grade Color Bands ───────────────────────────────────────────────
+  //
+  // Single source of truth for "how green is 65 %?" — was hand-rolled in
+  // three places with different cutoffs (BUG E4). Two presets:
+  //
+  //   • lenient (default for a vocab-learning app): 70+ green, 55+ amber,
+  //     40+ orange, otherwise red. Keeps mid-range scores feeling like
+  //     "keep practicing" rather than "fail".
+  //   • strict (US grading): 90+ green, 70+ amber, 60+ orange, else red.
+  //
+  // Teacher Profile lets the teacher pick which band. Stored as a String
+  // ('lenient' / 'strict') in the Hive userProfile box under key
+  // 'teacher_grade_band'. The enum lives at top of file (Dart can't
+  // declare enums inside classes).
+
+  static Color gradeColor(double pct, {GradeBand band = GradeBand.lenient}) {
+    switch (band) {
+      case GradeBand.strict:
+        if (pct >= 90) return success;
+        if (pct >= 70) return amber;
+        if (pct >= 60) return Colors.orange;
+        return error;
+      case GradeBand.lenient:
+        if (pct >= 70) return success;
+        if (pct >= 55) return amber;
+        if (pct >= 40) return Colors.orange;
+        return error;
+    }
+  }
+
+  static GradeBand gradeBandFromString(String? raw) {
+    return raw == 'strict' ? GradeBand.strict : GradeBand.lenient;
+  }
 
   // ─── Dark Theme ─────────────────────────────────────────────────────
 

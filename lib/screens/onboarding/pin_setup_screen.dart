@@ -163,6 +163,42 @@ class _PinSetupScreenState extends ConsumerState<PinSetupScreen> {
                     ],
                   ),
                 ),
+                // BUG O6 — teachers risk losing access to ALL their classes
+                // (and the only way to delete a class is to remove students
+                // first, which a recovered teacher can't do without the PIN).
+                // Surface the higher stakes explicitly.
+                if (widget.isTeacher) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.error.withValues(alpha: isDark ? 0.12 : 0.06),
+                      borderRadius: AppTheme.borderRadiusSm,
+                      border: Border.all(
+                        color: AppTheme.error.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.shield_outlined,
+                            color: AppTheme.error, size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Teachers: forgetting this PIN means losing '
+                            'access to every class you create. Save it '
+                            'somewhere safe (not just in your head).',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
 
                 // PIN field

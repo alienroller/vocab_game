@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../providers/profile_provider.dart';
 import '../providers/streak_provider.dart';
 import '../services/class_service.dart';
@@ -219,6 +221,15 @@ class ProfileScreen extends ConsumerWidget {
             // ─── Account Management ─────────────────────────────
             _SectionHeader(title: 'Account'),
             const SizedBox(height: 8),
+            // BUG O5 — symmetric "switch to teacher" path so a student
+            // who picked the wrong role on day 1 isn't stuck.
+            _ActionTile(
+              icon: Icons.school_outlined,
+              label: 'Become a teacher',
+              subtitle: 'Get access to classes, assignments, and exams',
+              onTap: () => _showSwitchToTeacherDialog(context, ref),
+            ),
+            const SizedBox(height: 8),
             _ActionTile(
               icon: Icons.logout,
               label: 'Logout',
@@ -265,6 +276,65 @@ class ProfileScreen extends ConsumerWidget {
             }
           }
         },
+      ),
+    );
+  }
+
+  // ─── Switch to teacher (BUG O5) ─────────────────────────────────
+
+  void _showSwitchToTeacherDialog(BuildContext context, WidgetRef ref) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Become a teacher?'),
+        content: const Text(
+          'You\'ll be able to create classes, post assignments, and run '
+          'exams. We\'ll set up your first class right after.\n\n'
+          'You\'ll keep your XP and streak.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final p = ref.read(profileProvider);
+              if (p == null) return;
+              try {
+                await Supabase.instance.client
+                    .from('profiles')
+                    .update({'is_teacher': true})
+                    .eq('id', p.id);
+                await Hive.box('userProfile').put('isTeacher', true);
+                // If they had joined a class as a student, drop the
+                // class_code so they don't appear in their own teacher
+                // roster (would be confusing).
+                await Hive.box('userProfile').delete('classCode');
+                await Supabase.instance.client
+                    .from('profiles')
+                    .update({'class_code': null})
+                    .eq('id', p.id);
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+                if (context.mounted) {
+                  context.go('/onboarding/teacher-class-setup');
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text('Could not switch: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Become a teacher'),
+          ),
+        ],
       ),
     );
   }

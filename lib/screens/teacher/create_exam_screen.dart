@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../models/teacher_class.dart';
 import '../../providers/exam_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/teacher_classes_provider.dart';
 import '../../services/exam_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -28,6 +30,11 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
   final Set<String> _selectedUnitIds = <String>{};
   int _selectedWordCount = 0;
 
+  /// Class codes the teacher has selected to post this exam to. Defaults to
+  /// the active class so single-class teachers see no behavior change. Multi-
+  /// class teachers can pick any subset (BUG C6).
+  final Set<String> _selectedClassCodes = <String>{};
+
   bool _loadingCollections = true;
   bool _loadingUnits = false;
   bool _submitting = false;
@@ -36,6 +43,18 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
   void initState() {
     super.initState();
     _loadCollections();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final profile = ref.read(profileProvider);
+      if (profile == null) return;
+      // Make sure the teacher's full class list is loaded so the multi-
+      // class picker can render even on a fresh app launch.
+      ref.read(teacherClassesProvider.notifier).load(profile.id);
+      // Pre-select the active class so single-class teachers see "post here"
+      // immediately. Multi-class teachers can toggle others.
+      if (profile.classCode != null) {
+        setState(() => _selectedClassCodes.add(profile.classCode!));
+      }
+    });
   }
 
   @override
@@ -46,10 +65,15 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
 
   Future<void> _loadCollections() async {
     try {
+      // Fetches BOTH `title` and `short_title` so the dropdown can render the
+      // same string the Library uses (BUG C4 — was showing different labels
+      // on each screen for the same collection). Falls back to `title` only
+      // if short_title is empty.
       final rows = await Supabase.instance.client
           .from('collections')
-          .select('id, title')
-          .order('title');
+          .select('id, title, short_title')
+          .eq('is_published', true)
+          .order('short_title');
       if (!mounted) return;
       setState(() {
         _collections = (rows as List).cast<Map<String, dynamic>>();
@@ -60,6 +84,14 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
       setState(() => _loadingCollections = false);
       _snack('Could not load collections: $e', error: true);
     }
+  }
+
+  /// Display label for a collection row. Prefers `short_title` (matches
+  /// Library); falls back to `title` if short_title is empty.
+  String _collectionLabel(Map<String, dynamic> row) {
+    final short = (row['short_title'] as String?)?.trim() ?? '';
+    if (short.isNotEmpty) return short;
+    return (row['title'] as String?)?.trim() ?? 'Untitled';
   }
 
   Future<void> _loadUnits(String collectionId) async {
@@ -114,37 +146,97 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
       );
       return;
     }
+    if (_selectedClassCodes.isEmpty) {
+      _snack('Pick at least one class to post this exam to', error: true);
+      return;
+    }
+    // BUG E2 — total time must cover the worst case where every student
+    // uses the full per-question allowance. If totalMinutes is too small,
+    // some students would time out before the question budget is exhausted.
+    if (_totalMinutes * 60 < _perQuestionSeconds * _questionCount) {
+      _snack(
+        'Not enough total time. $_questionCount × $_perQuestionSeconds s '
+        '= ${(_perQuestionSeconds * _questionCount / 60).ceil()} min minimum.',
+        error: true,
+      );
+      return;
+    }
 
     final profile = ref.read(profileProvider);
-    if (profile == null || profile.classCode == null) {
-      _snack('You must have a class to create an exam', error: true);
+    if (profile == null) {
+      _snack('Profile not loaded yet', error: true);
       return;
     }
 
     setState(() => _submitting = true);
+    final words = <Map<String, String>>[];
     try {
-      final words = await ExamService.fetchWordsForUnits(
+      words.addAll(await ExamService.fetchWordsForUnits(
         _selectedUnitIds.toList(),
-      );
+      ));
       if (words.length < _questionCount) {
         throw Exception(
-          'Only ${words.length} words have translations — lower the question count.',
+          'Only ${words.length} words have translations — lower the '
+          'question count.',
         );
       }
 
-      final sessionId = await ExamService.createExam(
-        classCode: profile.classCode!,
-        title: _titleCtrl.text.trim(),
-        bookIds: <String>[if (_selectedCollectionId != null) _selectedCollectionId!],
-        unitIds: _selectedUnitIds.toList(),
-        questionCount: _questionCount,
-        perQuestionSeconds: _perQuestionSeconds,
-        totalSeconds: _totalMinutes * 60,
-        words: words,
-      );
+      // Create one exam session per selected class. We do this serially so
+      // that a partial failure (e.g. one class is missing students) doesn't
+      // abort the whole batch; failures are reported per-class.
+      final created = <String>[];
+      final failed = <String, String>{};
+      for (final classCode in _selectedClassCodes) {
+        try {
+          final sid = await ExamService.createExam(
+            classCode: classCode,
+            title: _titleCtrl.text.trim(),
+            bookIds: <String>[
+              if (_selectedCollectionId != null) _selectedCollectionId!,
+            ],
+            unitIds: _selectedUnitIds.toList(),
+            questionCount: _questionCount,
+            perQuestionSeconds: _perQuestionSeconds,
+            totalSeconds: _totalMinutes * 60,
+            words: words,
+          );
+          created.add(sid);
+        } catch (e) {
+          failed[classCode] = e.toString();
+        }
+      }
       ref.invalidate(teacherExamSessionsProvider);
       if (!mounted) return;
-      context.pushReplacement('/teacher/exams/$sessionId/lobby');
+
+      if (created.isEmpty) {
+        _snack(
+          failed.values.isEmpty
+              ? 'Failed to create exam'
+              : 'Failed: ${failed.entries.first.value}',
+          error: true,
+        );
+        return;
+      }
+
+      // Single class → jump straight into its lobby (preserves existing UX).
+      // Multi-class → show a snackbar with the count and route to the
+      // first lobby; the teacher can navigate the others from /teacher/exams.
+      if (created.length == 1) {
+        context.pushReplacement('/teacher/exams/${created.first}/lobby');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Created ${created.length} exam'
+              '${created.length == 1 ? '' : 's'}'
+              '${failed.isEmpty ? '' : ' • ${failed.length} failed'}',
+            ),
+            backgroundColor: failed.isEmpty ? Colors.green : Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        context.pushReplacement('/teacher/exams/${created.first}/lobby');
+      }
     } catch (e) {
       if (!mounted) return;
       _snack(e.toString(), error: true);
@@ -185,12 +277,10 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final teacherClasses = ref.watch(teacherClassesProvider).classes;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('New exam'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('New exam')),
       body: _loadingCollections
           ? const Center(child: CircularProgressIndicator())
           : Form(
@@ -200,15 +290,77 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
                 children: [
                   _buildTitleCard(isDark),
                   const SizedBox(height: 14),
+                  // Multi-class picker (BUG C6). Only renders when the
+                  // teacher has 2+ classes; single-class teachers see a
+                  // compact "Posting to: X" line via the status card.
+                  if (teacherClasses.length >= 2) ...[
+                    _buildClassesCard(teacherClasses, isDark),
+                    const SizedBox(height: 14),
+                  ],
                   _buildContentCard(isDark),
                   const SizedBox(height: 14),
                   _buildTimingCard(isDark),
                   const SizedBox(height: 14),
-                  _buildStatusCard(),
+                  _buildStatusCard(teacherClasses),
                 ],
               ),
             ),
       bottomNavigationBar: _buildBottomBar(),
+    );
+  }
+
+  /// "Post to which classes?" card. Shown only for multi-class teachers.
+  /// Each row is a CheckboxListTile so muscle memory matches the
+  /// AssignToClassesSheet from Library.
+  Widget _buildClassesCard(List<TeacherClass> classes, bool isDark) {
+    return Container(
+      decoration: _cardDecoration(isDark),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Row(
+              children: [
+                _sectionLabel('CLASSES'),
+                const Spacer(),
+                Text(
+                  '${_selectedClassCodes.length}/${classes.length} selected',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final c in classes)
+            CheckboxListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              value: _selectedClassCodes.contains(c.code),
+              onChanged: (v) => setState(() {
+                if (v == true) {
+                  _selectedClassCodes.add(c.code);
+                } else {
+                  _selectedClassCodes.remove(c.code);
+                }
+              }),
+              title: Text(
+                c.className.isEmpty ? c.code : c.className,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                '${c.code} • ${c.studentCount} student'
+                '${c.studentCount == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              activeColor: AppTheme.violet,
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 
@@ -226,7 +378,7 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
           TextFormField(
             controller: _titleCtrl,
             decoration: const InputDecoration(
-              hintText: 'e.g. Unit 3–5 mid-term',
+              hintText: 'e.g. Unit 3-5 mid-term',
               border: InputBorder.none,
               isDense: true,
               contentPadding: EdgeInsets.symmetric(vertical: 6),
@@ -311,10 +463,22 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
     );
   }
 
-  Widget _buildStatusCard() {
+  Widget _buildStatusCard(List<TeacherClass> classes) {
     final hasUnits = _selectedUnitIds.isNotEmpty;
     final enoughWords = _selectedWordCount >= _questionCount;
+    final timingOk =
+        _totalMinutes * 60 >= _perQuestionSeconds * _questionCount;
+    final hasClasses = _selectedClassCodes.isNotEmpty;
 
+    if (!hasClasses) {
+      return _statusTile(
+        icon: Icons.info_outline_rounded,
+        color: Colors.blueGrey,
+        title: 'Pick at least one class',
+        subtitle:
+            'Tick the classes above that should receive this exam.',
+      );
+    }
     if (!hasUnits) {
       return _statusTile(
         icon: Icons.info_outline_rounded,
@@ -333,7 +497,30 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
             'Selected units have $_selectedWordCount words, but the exam asks for $_questionCount questions. Lower the count or pick more units.',
       );
     }
+    if (!timingOk) {
+      // BUG E2 — total time doesn't cover the worst-case per-question budget.
+      final minMinutes =
+          (_perQuestionSeconds * _questionCount / 60).ceil();
+      return _statusTile(
+        icon: Icons.warning_amber_rounded,
+        color: AppTheme.amber,
+        title: 'Total time too short',
+        subtitle:
+            '$_questionCount questions × ${_perQuestionSeconds}s each '
+            'needs at least $minMinutes min total. Right now total is '
+            '$_totalMinutes min — students would time out before finishing.',
+      );
+    }
     final unitsWord = _selectedUnitIds.length == 1 ? 'unit' : 'units';
+    final classNames = classes
+        .where((c) => _selectedClassCodes.contains(c.code))
+        .map((c) => c.className.isEmpty ? c.code : c.className)
+        .toList();
+    final classScope = classNames.isEmpty
+        ? 'the active class'
+        : (classNames.length == 1
+            ? classNames.first
+            : '${classNames.length} classes');
     return _statusTile(
       icon: Icons.check_circle_rounded,
       color: AppTheme.success,
@@ -341,12 +528,19 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
       subtitle:
           '$_questionCount questions drawn from $_selectedWordCount words · '
           '${_selectedUnitIds.length} $unitsWord · '
-          '${_perQuestionSeconds}s each · $_totalMinutes min total.',
+          '${_perQuestionSeconds}s each · $_totalMinutes min total · '
+          'posting to $classScope.',
     );
   }
 
   Widget _buildBottomBar() {
-    final enabled = !_submitting && _selectedUnitIds.isNotEmpty;
+    final timingOk =
+        _totalMinutes * 60 >= _perQuestionSeconds * _questionCount;
+    final enabled = !_submitting &&
+        _selectedUnitIds.isNotEmpty &&
+        _selectedClassCodes.isNotEmpty &&
+        _selectedWordCount >= _questionCount &&
+        timingOk;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -398,7 +592,7 @@ class _CreateExamScreenState extends ConsumerState<CreateExamScreen> {
       items: _collections
           .map((c) => DropdownMenuItem(
                 value: c['id'].toString(),
-                child: Text(c['title'].toString()),
+                child: Text(_collectionLabel(c)),
               ))
           .toList(),
       onChanged: (v) {

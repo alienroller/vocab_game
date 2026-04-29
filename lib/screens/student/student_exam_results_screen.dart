@@ -36,25 +36,19 @@ class _StudentExamResultsScreenState extends State<StudentExamResultsScreen> {
 
   Future<void> _loadReview() async {
     try {
-      final questions = await ExamService.fetchQuestions(widget.sessionId);
-      final myAnswers = await ExamService.fetchMyAnswers(widget.sessionId);
+      // Single RPC returns prompt + correct_answer + my_answer + is_correct
+      // for THIS student only. Replaced two queries (fetchQuestions +
+      // fetchMyAnswers) and the now-blocked direct read of correct_answer
+      // (BUG C3 fix).
+      final rows = await ExamService.fetchStudentReview(widget.sessionId);
 
-      // Build a question lookup.
-      final qMap = <String, Map<String, dynamic>>{};
-      for (final q in questions) {
-        qMap[q['id'].toString()] = q;
-      }
-
-      // Find wrong answers.
       final wrong = <_ReviewItem>[];
-      for (final a in myAnswers) {
-        if (a['is_correct'] == true) continue;
-        final q = qMap[a['question_id'].toString()];
-        if (q == null) continue;
+      for (final row in rows) {
+        if (row['is_correct'] == true) continue;
         wrong.add(_ReviewItem(
-          prompt: q['prompt'] as String,
-          correctAnswer: q['correct_answer'] as String,
-          studentAnswer: a['answer'] as String,
+          prompt: (row['prompt'] as String?) ?? '',
+          correctAnswer: (row['correct_answer'] as String?) ?? '',
+          studentAnswer: (row['my_answer'] as String?) ?? '',
         ));
       }
 

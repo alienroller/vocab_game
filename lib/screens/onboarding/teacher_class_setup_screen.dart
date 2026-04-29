@@ -72,10 +72,10 @@ class _TeacherClassSetupScreenState
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      // BUG O3 — appbar gets a real back button so teachers who realise
+      // they typo'd their username can return without restarting onboarding.
       appBar: AppBar(
         title: const Text('Setup'),
-        leading: const SizedBox.shrink(), // No back button
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -90,14 +90,15 @@ class _TeacherClassSetupScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 20),
-                  // Progress indicator 4 of 4
+                  // BUG O3 — was "4 dots all filled" which read as "you're
+                  // done". Honest progress: 3 prior steps + this active one.
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _buildDot(true),
                       _buildDot(true),
                       _buildDot(true),
-                      _buildDot(true), // This is step 4
+                      _buildDot(true, current: true),
                     ],
                   ),
                   const SizedBox(height: 48),
@@ -194,14 +195,22 @@ class _TeacherClassSetupScreenState
     );
   }
 
-  Widget _buildDot(bool active) {
+  Widget _buildDot(bool active, {bool current = false}) {
+    // [current] renders a slightly larger ring so the teacher can tell
+    // "you are here" from "you are done" — fix for the BUG O3 visual lie
+    // where every dot was filled solid even on step 4.
     return Container(
-      width: 12,
-      height: 12,
+      width: current ? 14 : 12,
+      height: current ? 14 : 12,
       margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: active ? AppTheme.violet : Colors.grey.withValues(alpha: 0.3),
+        color: current
+            ? Colors.transparent
+            : (active ? AppTheme.violet : Colors.grey.withValues(alpha: 0.3)),
+        border: current
+            ? Border.all(color: AppTheme.violet, width: 2.5)
+            : null,
       ),
     );
   }

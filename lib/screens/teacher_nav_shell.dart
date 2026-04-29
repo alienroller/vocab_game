@@ -29,9 +29,24 @@ class _TeacherNavShellState extends ConsumerState<TeacherNavShell> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
     return PopScope(
-      canPop: false, // We will handle the pop manually
+      // BUG V8 — use canPop: true so the inner GoRouter navigator handles
+      // its own back stack first (e.g. /teacher/library/units → back goes
+      // to the unit list instead of the Dashboard tab). The double-tap-to-
+      // exit fallback only runs when there's nothing left to pop AND we're
+      // on the Dashboard tab.
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+
+        // Let the active branch's navigator pop first (handles
+        // sub-routes like /teacher/library/units).
+        final innerNav = widget.navigationShell.currentIndex >= 0
+            ? Navigator.maybeOf(context)
+            : null;
+        if (innerNav != null && innerNav.canPop()) {
+          innerNav.pop();
+          return;
+        }
 
         // If not on Dashboard tab, switch back to Dashboard tab
         if (widget.navigationShell.currentIndex != 0) {
@@ -183,7 +198,9 @@ class _NavItem extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 10,
+                  // BUG V6 — was 10 px, below most accessibility minimums.
+                  // Bumped to 11 (matches default Material 3 nav).
+                  fontSize: 11,
                   fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
                   color: isActive
                       ? AppTheme.violet

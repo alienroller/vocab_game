@@ -169,12 +169,17 @@ class ExamService {
     }).eq('id', sessionId).eq('status', 'lobby');
   }
 
-  /// Forces a session to `completed`. Used by the teacher's End Now button.
+  /// Forces a session to `completed` AND marks every still-active
+  /// participant as `timed_out` (with their per-student correct/total
+  /// counts snapshotted from exam_answers). Wraps the [force_end_exam]
+  /// RPC so the flip is atomic — fixes BUG E6 where the End-Now button
+  /// promised "students will be marked timed out" but only flipped the
+  /// session row, leaving participants stuck in 'in_progress'.
   static Future<void> endSession(String sessionId) async {
-    await _supa.from('exam_sessions').update(<String, dynamic>{
-      'status': 'completed',
-      'ended_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', sessionId);
+    await _supa.rpc(
+      'force_end_exam',
+      params: <String, dynamic>{'p_session': sessionId},
+    );
   }
 
   // ─── Student flow ─────────────────────────────────────────────────────────
@@ -270,20 +275,69 @@ class ExamService {
 
   // ─── Exam runner (student in-progress) ──────────────────────────────
 
-  /// Fetches all questions for a session, ordered by `order_index`.
-  /// The `correct_answer` field is included — the client MUST NOT show it
-  /// until after the student submits (or the per-question timer fires).
-  /// In a fully hardened setup, correct_answer would be stripped by an
-  /// Edge Function; for now, the options array is pre-shuffled server-side.
-  static Future<List<Map<String, dynamic>>> fetchQuestions(
+  /// Student path: returns the safe column subset (id, order_index, prompt,
+  /// options) for the exam runner. Calls the SECURITY DEFINER RPC introduced
+  /// in migration 015; that RPC verifies the caller is a participant. The
+  /// `correct_answer` field is intentionally NOT returned to students —
+  /// grading happens via the `submit-answer` Edge Function (BUG C3 fix).
+  static Future<List<Map<String, dynamic>>> fetchStudentQuestions(
     String sessionId,
   ) async {
-    final rows = await _supa
-        .from('exam_questions')
-        .select('id, order_index, prompt, correct_answer, options')
-        .eq('session_id', sessionId)
-        .order('order_index');
-    return (rows as List).cast<Map<String, dynamic>>();
+    final result = await _supa.rpc(
+      'get_student_exam_questions',
+      params: <String, dynamic>{
+        'p_session': sessionId,
+        'p_student': _userId,
+      },
+    );
+    return (result as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Teacher path: returns ALL columns (including correct_answer) for the
+  /// teacher's results screen, where the answer key is needed to render
+  /// "the correct answer was X". Calls a SECURITY DEFINER RPC that checks
+  /// the caller is flagged is_teacher AND owns the session. Direct
+  /// SELECT on exam_questions is now revoked from anon, authenticated
+  /// (BUG C3 fix).
+  static Future<List<Map<String, dynamic>>> fetchTeacherQuestions(
+    String sessionId,
+  ) async {
+    final result = await _supa.rpc(
+      'get_teacher_exam_questions',
+      params: <String, dynamic>{
+        'p_session': sessionId,
+        'p_teacher': _userId,
+      },
+    );
+    return (result as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Backwards-compatible alias — kept so any third-party integration
+  /// continues to work, but new code MUST use [fetchStudentQuestions] or
+  /// [fetchTeacherQuestions] explicitly.
+  @Deprecated('Use fetchStudentQuestions / fetchTeacherQuestions')
+  static Future<List<Map<String, dynamic>>> fetchQuestions(
+    String sessionId,
+  ) =>
+      fetchTeacherQuestions(sessionId);
+
+  /// Post-exam review for a student: returns prompt + correct_answer +
+  /// my_answer + is_correct for every question this student submitted.
+  /// Calls the SECURITY DEFINER RPC introduced in migration 015 — the
+  /// function only returns rows from `exam_answers` belonging to the
+  /// caller, so a student can only see the answer key for their own
+  /// attempts (BUG C3).
+  static Future<List<Map<String, dynamic>>> fetchStudentReview(
+    String sessionId,
+  ) async {
+    final result = await _supa.rpc(
+      'get_student_exam_review',
+      params: <String, dynamic>{
+        'p_session': sessionId,
+        'p_student': _userId,
+      },
+    );
+    return (result as List).cast<Map<String, dynamic>>();
   }
 
   /// Fetches already-submitted answers for this student in a session.

@@ -107,7 +107,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Learn words. Beat your class.',
+                    'For students and teachers',
                     style: GoogleFonts.inter(
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
@@ -116,11 +116,16 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
+                  // BUG O1 — old subtitle ("Learn words. Beat your class.")
+                  // never hinted that this app has a teacher mode. New copy
+                  // tells both audiences what to expect before they tap
+                  // Get Started.
                   Text(
-                    'English ↔ Uzbek vocabulary learning\nwith XP, streaks, and leaderboards',
+                    'Students: practice with games, XP, and streaks.\n'
+                    'Teachers: create a class, assign units, run live exams.',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white.withValues(alpha: 0.65),
+                      color: Colors.white.withValues(alpha: 0.7),
                       height: 1.5,
                     ),
                     textAlign: TextAlign.center,

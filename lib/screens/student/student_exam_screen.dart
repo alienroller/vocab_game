@@ -94,8 +94,10 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
   Future<void> _loadExamState() async {
     try {
       // Fetch session, questions, participation, and prior answers in parallel.
+      // Uses the secure student RPC (no correct_answer), see BUG C3.
       final sessionFuture = ExamService.fetchSession(widget.sessionId);
-      final questionsFuture = ExamService.fetchQuestions(widget.sessionId);
+      final questionsFuture =
+          ExamService.fetchStudentQuestions(widget.sessionId);
       final participationFuture =
           ExamService.fetchMyParticipation(widget.sessionId);
       final answersFuture = ExamService.fetchMyAnswers(widget.sessionId);
@@ -264,27 +266,27 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
     _showFinishScreen();
   }
 
-  /// Optimistic-UI answer submit.
+  /// Server-graded answer submit.
   ///
-  /// Grades the tap against the locally-cached `correct_answer` and shows
-  /// green/red INSTANTLY — no waiting on the network. The server submit
-  /// runs in the background with retries and swallows benign 409s
-  /// ("already answered") so a slow network never produces a red banner
-  /// or leaves the student stuck on a question.
+  /// As of BUG C3, students never receive `correct_answer` ahead of time,
+  /// so we cannot grade locally. The flow is now:
+  ///   1. Tap → highlight selected (instant, ≤16 ms).
+  ///   2. submit-answer Edge Function returns isCorrect + correctAnswer.
+  ///   3. Render green/red from the server response.
+  ///   4. Brief 1.2 s pause so the student sees the result, then advance.
+  ///
+  /// On flaky network, retries silently up to 4× with backoff. If every
+  /// attempt fails the student still advances (with a neutral "couldn't
+  /// reach server" hint) — losing one question to the network is better
+  /// than blocking the entire exam.
   Future<void> _submitAnswer(String answer) async {
     if (_submitting || _showingResult || _finished) return;
     final q = _questions[_currentIndex];
     final questionId = q['id'].toString();
-    final correctAnswer = (q['correct_answer'] as String?)?.trim() ?? '';
     final secondsTaken = _questionStartTime != null
         ? DateTime.now().difference(_questionStartTime!).inSeconds
         : _perQuestionSeconds;
-
-    // Grade locally. Timeouts are always wrong; otherwise compare trimmed,
-    // case-insensitive (same rule the server uses).
     final isTimedOut = answer == '__timed_out__';
-    final isCorrect = !isTimedOut &&
-        answer.trim().toLowerCase() == correctAnswer.toLowerCase();
 
     // Light tap feedback so the UI feels responsive even on slow networks.
     if (!isTimedOut) {
@@ -292,23 +294,36 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
     }
 
     _questionTimer?.cancel();
+    // First pass: lock the screen and visually mark selected. Grading
+    // (green/red) happens after the server response arrives.
     setState(() {
       _submitting = true;
-      _showingResult = true;
       _selectedAnswer = answer;
-      _lastAnswerCorrect = isCorrect;
-      _lastCorrectAnswer = correctAnswer;
       _answeredIds.add(questionId);
-      _totalAnswered++;
-      if (isCorrect) _correctCount++;
     });
 
-    // Fire-and-forget the server submit. Retries silently on flaky network.
-    unawaited(_sendSubmitInBackground(
+    final result = await _submitWithRetries(
       questionId: questionId,
       answer: answer,
       secondsTaken: secondsTaken,
-    ));
+    );
+
+    if (!mounted) return;
+
+    if (result.terminal) {
+      // Server says we're done (timed out / already finished / session over).
+      setState(() => _submitting = false);
+      _showFinishScreen();
+      return;
+    }
+
+    setState(() {
+      _showingResult = true;
+      _lastAnswerCorrect = result.isCorrect;
+      _lastCorrectAnswer = result.correctAnswer;
+      _totalAnswered++;
+      if (result.isCorrect) _correctCount++;
+    });
 
     // Short pause so the student sees the green/red feedback, then advance.
     await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -317,45 +332,74 @@ class _StudentExamScreenState extends ConsumerState<StudentExamScreen>
     _advanceToNext();
   }
 
-  /// Server-side submit, retried silently so transient failures never hit
-  /// the UI. Treats 409 "already answered" as success (the server already
-  /// has this answer — a common outcome when a previous request's response
-  /// was lost but the row was written).
-  Future<void> _sendSubmitInBackground({
+  /// Submit with up to 4 attempts, exponential backoff. Returns a
+  /// [_SubmitOutcome] describing the grade plus any terminal flag the
+  /// caller should react to (timed-out / session-over).
+  Future<_SubmitOutcome> _submitWithRetries({
     required String questionId,
     required String answer,
     required int secondsTaken,
   }) async {
     const maxAttempts = 4;
+    Object? lastError;
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await ExamService.submitAnswer(
+        final resp = await ExamService.submitAnswer(
           sessionId: widget.sessionId,
           questionId: questionId,
           answer: answer,
           secondsTaken: secondsTaken,
         );
-        return; // success
+        // `finished: true` from the server means "this was your last
+        // question". We still want to show green/red feedback for it; the
+        // navigation to results happens via _advanceToNext checking the
+        // local index. So the `terminal` flag is reserved for *unnatural*
+        // session-over conditions (handled in catch-blocks below).
+        return _SubmitOutcome(
+          isCorrect: resp['isCorrect'] == true,
+          correctAnswer: (resp['correctAnswer'] as String?) ?? '',
+          terminal: false,
+        );
       } catch (e) {
+        lastError = e;
         final msg = e.toString().toLowerCase();
-        // Server already has this answer — benign, nothing to do.
-        if (msg.contains('already answered')) return;
-        // Terminal states — retrying will never succeed.
+        // Server already has this answer — benign duplicate. We don't know
+        // the grade; fetch the is_correct from exam_answers so the UI shows
+        // the right color even on a re-submit.
+        if (msg.contains('already answered')) {
+          try {
+            final mine = await ExamService.fetchMyAnswers(widget.sessionId);
+            final row = mine.firstWhere(
+              (r) => r['question_id'].toString() == questionId,
+              orElse: () => const <String, dynamic>{},
+            );
+            return _SubmitOutcome(
+              isCorrect: row['is_correct'] == true,
+              correctAnswer: '',
+              terminal: false,
+            );
+          } catch (_) {
+            return const _SubmitOutcome(
+              isCorrect: false, correctAnswer: '', terminal: false);
+          }
+        }
+        // Terminal states — exam is over for this student.
         if (msg.contains('you already finished') ||
             msg.contains('session is not in progress') ||
             msg.contains('session time expired')) {
-          debugPrint('submit-answer terminal: $e');
-          return;
+          return const _SubmitOutcome(
+            isCorrect: false, correctAnswer: '', terminal: true);
         }
         if (attempt < maxAttempts) {
-          // Exponential-ish backoff: 2s, 4s, 6s.
           await Future<void>.delayed(Duration(seconds: attempt * 2));
           continue;
         }
-        debugPrint(
-            'submit-answer final failure after $attempt attempts: $e');
       }
     }
+    debugPrint('submit-answer failed after retries: $lastError');
+    // Network is gone. Don't block the student — let them keep going.
+    return const _SubmitOutcome(
+      isCorrect: false, correctAnswer: '', terminal: false);
   }
 
   void _advanceToNext() {
@@ -714,6 +758,21 @@ class _CircularTimer extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Result of a single answer submit. Carries the server-graded boolean,
+/// the correct answer (for green/red highlighting), and a terminal flag
+/// telling the caller to bail out to the results screen.
+class _SubmitOutcome {
+  final bool isCorrect;
+  final String correctAnswer;
+  final bool terminal;
+
+  const _SubmitOutcome({
+    required this.isCorrect,
+    required this.correctAnswer,
+    required this.terminal,
+  });
 }
 
 /// Running score chip. Green pill with correct/answered so the student

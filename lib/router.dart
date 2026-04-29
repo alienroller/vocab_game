@@ -119,7 +119,15 @@ final GoRouter appRouter = GoRouter(
     if (!hasOnboarded && !isOnboarding) return '/welcome';
     if (hasOnboarded && path == '/welcome') return '/home';
 
-    final isTeacher = profileBox.get('isTeacher', defaultValue: false) as bool;
+    // BUG O7 — `previewAsStudent` lets a teacher temporarily route through
+    // the student shell (Home/Library/Duels) so they can SEE what their
+    // students see without spinning up a second device. The flag is cleared
+    // by the "Exit preview" banner in home_screen.
+    final realIsTeacher =
+        profileBox.get('isTeacher', defaultValue: false) as bool;
+    final previewAsStudent =
+        profileBox.get('previewAsStudent', defaultValue: false) as bool;
+    final isTeacher = realIsTeacher && !previewAsStudent;
     if (path == '/') {
       if (!hasOnboarded) return '/welcome';
       return isTeacher ? '/teacher/dashboard' : '/home';
@@ -128,7 +136,9 @@ final GoRouter appRouter = GoRouter(
     if (isTeacher && (path == '/home' || path == '/library' || path == '/profile' || path.startsWith('/duels') || path.startsWith('/speaking'))) {
       return '/teacher/dashboard';
     }
-    if (!isTeacher && path.startsWith('/teacher')) {
+    if (!isTeacher && path.startsWith('/teacher') && !realIsTeacher) {
+      // True student — block teacher routes. A teacher in preview mode
+      // is allowed to bounce back to /teacher/dashboard manually.
       return '/home';
     }
 

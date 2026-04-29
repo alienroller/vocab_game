@@ -10,6 +10,7 @@ import '../../../providers/assignment_provider.dart';
 import '../../../providers/profile_provider.dart';
 import '../../../providers/teacher_classes_provider.dart';
 import '../../../services/assignment_service.dart';
+import '../../../services/exam_service.dart';
 import '../../../theme/app_theme.dart';
 
 class TeacherLibraryScreen extends ConsumerStatefulWidget {
@@ -62,22 +63,28 @@ class _TeacherLibraryScreenState extends ConsumerState<TeacherLibraryScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Library', style: TextStyle(fontWeight: FontWeight.w800)),
-      ),
+      // BUG L5 — dropped extendBodyBehindAppBar + manual top SizedBox; the
+      // workaround left an awkward gap on devices without a notch and made
+      // this screen the visual outlier among teacher screens.
+      appBar: AppBar(title: const Text('Library')),
       body: Container(
-        decoration: BoxDecoration(gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient),
+        decoration: BoxDecoration(
+            gradient:
+                isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient),
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight + 8),
-                  _buildFilterBar(),
-                  Expanded(
-                    child: _collections.isEmpty ? _buildEmptyState() : _buildCollectionGrid(),
-                  ),
-                ],
+            : RefreshIndicator(
+                onRefresh: _loadCollections,
+                child: Column(
+                  children: [
+                    _buildFilterBar(),
+                    Expanded(
+                      child: _collections.isEmpty
+                          ? _buildEmptyState()
+                          : _buildCollectionGrid(),
+                    ),
+                  ],
+                ),
               ),
       ),
     );
@@ -112,23 +119,54 @@ class _TeacherLibraryScreenState extends ConsumerState<TeacherLibraryScreen> {
 
   Widget _buildEmptyState() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('📚', style: TextStyle(fontSize: 64)),
-          const SizedBox(height: 16),
-          Text(
-            'No collections available',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+    // BUG L1 — old copy ("Published word collections will appear here") was
+    // a dead-end. We now suggest a recovery path (pull to refresh) and an
+    // explicit refresh button so the teacher isn't stranded if Supabase
+    // hadn't responded by first build.
+    return ListView(
+      // ListView (not Center) so RefreshIndicator can pull-to-refresh.
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.18),
+        const Center(child: Text('📚', style: TextStyle(fontSize: 64))),
+        const SizedBox(height: 16),
+        Center(
+          child: Text(
+            'No collections yet',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Published word collections will appear here.',
-            style: TextStyle(color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              'Your school admin hasn\'t published any units yet. '
+              'Pull down to refresh, or check back later.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isDark
+                    ? AppTheme.textSecondaryDark
+                    : AppTheme.textSecondaryLight,
+              ),
+            ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        Center(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              setState(() => _loading = true);
+              _loadCollections();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -280,6 +318,158 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
     }
   }
 
+  /// Opens a sheet that shows the word list for a unit so the teacher can
+  /// see what they're about to assign before committing (BUG C5). Has an
+  /// "Assign" button at the bottom that hands off to [_openAssignSheet].
+  Future<void> _openPreviewSheet(Map<String, dynamic> unit) async {
+    final unitId = unit['id'] as String;
+    final unitTitle = (unit['title'] as String?) ?? 'Unit';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    List<Map<String, String>>? words;
+    String? error;
+
+    unawaited(showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(builder: (sheetCtx, setSheet) {
+          // Lazy-load on first build of the sheet so it appears instantly.
+          if (words == null && error == null) {
+            ExamService.fetchWordsForUnits([unitId]).then((rows) {
+              if (sheetCtx.mounted) setSheet(() => words = rows);
+            }).catchError((Object e, StackTrace _) {
+              if (sheetCtx.mounted) setSheet(() => error = e.toString());
+            });
+          }
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (_, scrollCtrl) {
+              return SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        unitTitle,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        words == null
+                            ? 'Loading words…'
+                            : '${words!.length} words in this unit',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: error != null
+                            ? Center(
+                                child: Text(
+                                  'Could not load words: $error',
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              )
+                            : words == null
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : ListView.separated(
+                                    controller: scrollCtrl,
+                                    itemCount: words!.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (_, i) {
+                                      final w = words![i];
+                                      return ListTile(
+                                        dense: true,
+                                        leading: Container(
+                                          width: 28,
+                                          height: 28,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.violet
+                                                .withValues(alpha: 0.12),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Text(
+                                            '${i + 1}',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: AppTheme.violet,
+                                            ),
+                                          ),
+                                        ),
+                                        title: Text(
+                                          w['english'] ?? '',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          w['uzbek'] ?? '',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? AppTheme.textSecondaryDark
+                                                : AppTheme.textSecondaryLight,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetCtx);
+                          _openAssignSheet(unit);
+                        },
+                        icon: const Icon(Icons.assignment_turned_in_rounded),
+                        label: const Text('Assign this unit'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        });
+      },
+    ));
+  }
+
   Future<void> _openAssignSheet(Map<String, dynamic> unit) async {
     final profile = ref.read(profileProvider);
     if (profile == null) return;
@@ -383,93 +573,138 @@ class _TeacherUnitListScreenState extends ConsumerState<TeacherUnitListScreen> {
     final assignmentState = ref.watch(assignmentProvider);
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(title: Text(widget.collection['short_title'] ?? 'Units')),
+      // BUG L5 — same as the parent Library screen; dropped the
+      // extendBodyBehindAppBar so the unit list doesn't sit under a
+      // translucent appbar with weird top padding on most devices.
+      appBar: AppBar(
+          title: Text(widget.collection['short_title'] ??
+              widget.collection['title'] ??
+              'Units')),
       body: Container(
-        decoration: BoxDecoration(gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient),
-        child: _loading || assignmentState.isLoading
+        decoration: BoxDecoration(
+            gradient:
+                isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient),
+        child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _units.isEmpty
-                ? Center(child: Text('No units available yet.', style: TextStyle(color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight)))
+                ? Center(
+                    child: Text('No units available yet.',
+                        style: TextStyle(
+                            color: isDark
+                                ? AppTheme.textSecondaryDark
+                                : AppTheme.textSecondaryLight)))
                 : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + kToolbarHeight + 16, 16, 24),
+                    // The unit list renders even while assignmentState is
+                    // still loading — assigned-badge state appears as it
+                    // fills in (BUG L4: list used to disappear behind a
+                    // single full-screen spinner during the second fetch).
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                     itemCount: _units.length,
                     itemBuilder: (context, index) {
                       final unit = _units[index];
                       final unitId = unit['id'] as String;
                       final total = unit['word_count'] as int? ?? 10;
-                      
+
                       // "Assigned" badge reflects only the *active* class.
                       // Multi-class teachers get a fuller view inside the
                       // assign sheet (shows already-assigned classes greyed).
-                      final isAssignedToActive = assignmentState.assignments
-                          .any((a) => a.unitId == unitId && a.isActive);
+                      final isAssignedToActive = !assignmentState.isLoading &&
+                          assignmentState.assignments
+                              .any((a) => a.unitId == unitId && a.isActive);
                       final isBusy = _assigningUnitId == unitId;
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: AppTheme.glassCard(isDark: isDark),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(gradient: AppTheme.primaryGradient, borderRadius: BorderRadius.circular(12)),
-                              alignment: Alignment.center,
-                              child: Text(
-                                '${unit['unit_number'] ?? index + 1}',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Material(
+                          color: Colors.transparent,
+                          borderRadius: AppTheme.borderRadiusMd,
+                          child: InkWell(
+                            borderRadius: AppTheme.borderRadiusMd,
+                            // Tapping the row opens the word preview sheet
+                            // (BUG C5). The "Assign" button on the right is
+                            // the express path for teachers who already
+                            // know what's in the unit.
+                            onTap: isBusy ? null : () => _openPreviewSheet(unit),
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: AppTheme.glassCard(isDark: isDark),
+                              child: Row(
                                 children: [
-                                  Text(unit['title'] ?? 'Unit ${unit['unit_number']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                                  const SizedBox(height: 4),
-                                  Text('$total words', style: TextStyle(fontSize: 13, color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight)),
+                                  Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                        gradient: AppTheme.primaryGradient,
+                                        borderRadius: AppTheme.borderRadiusSm),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '${unit['unit_number'] ?? index + 1}',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 18),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                            unit['title'] ??
+                                                'Unit ${unit['unit_number']}',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 15)),
+                                        const SizedBox(height: 4),
+                                        Text('$total words • Tap to preview',
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: isDark
+                                                    ? AppTheme.textSecondaryDark
+                                                    : AppTheme
+                                                        .textSecondaryLight)),
+                                      ],
+                                    ),
+                                  ),
+                                  FilledButton(
+                                    onPressed:
+                                        isBusy ? null : () => _openAssignSheet(unit),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.violet,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                    child: isBusy
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white),
+                                          )
+                                        : Text(
+                                            // L3 — old label "Assigned ✓ •
+                                            // Assign more" was ambiguous
+                                            // ("more units"? "more
+                                            // students"?). Now reads
+                                            // "Assigned · Add classes" so the
+                                            // multi-class scope is explicit.
+                                            isAssignedToActive
+                                                ? 'Add classes'
+                                                : 'Assign',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.white),
+                                          ),
+                                  ),
                                 ],
                               ),
                             ),
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.primaryGradient,
-                                borderRadius: AppTheme.borderRadiusMd,
-                              ),
-                              child: FilledButton(
-                                onPressed: isBusy
-                                    ? null
-                                    : () => _openAssignSheet(unit),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                child: isBusy
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : Text(
-                                        isAssignedToActive
-                                            ? 'Assigned ✓ • Assign more'
-                                            : 'Assign',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       );
                     },
@@ -657,22 +892,34 @@ class _AssignToClassesSheetState extends State<_AssignToClassesSheet> {
                   child: const Text('Cancel'),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: canSubmit
-                      ? () => Navigator.pop(
-                            context,
-                            _AssignResult(
-                              classCodes: _selected.toList(),
-                              dueDate: _formattedDueDate(),
-                            ),
-                          )
-                      : null,
-                  child: Text(
-                    canSubmit
-                        ? 'Assign to ${_selected.length}'
-                        : 'Pick classes',
+                // BUG L7 — old code left the FilledButton disabled with the
+                // label "Pick classes", which renders as washed-out text on
+                // a violet button. Now we hide the button entirely until
+                // there's something to assign to, replaced by an inline
+                // hint chip.
+                if (canSubmit)
+                  FilledButton(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      _AssignResult(
+                        classCodes: _selected.toList(),
+                        dueDate: _formattedDueDate(),
+                      ),
+                    ),
+                    child: Text('Assign to ${_selected.length}'),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      'Tick a class above to continue',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 12),

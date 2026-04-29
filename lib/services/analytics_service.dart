@@ -9,13 +9,22 @@ class AnalyticsService {
   /// Returns all students in a class (excluding the teacher).
   /// teacher_id is used to exclude the teacher from the list.
   /// This replaces ClassService.getClassStudents() with a typed result.
+  ///
+  /// `class_code` and `created_at` are explicitly selected so that
+  /// downstream UI (Student Detail's "Remove from class", at-risk filter)
+  /// has the data it needs — they were missing before, breaking
+  /// student-detail entirely (BUG C2) and showing freshly-joined students
+  /// as red-flagged at-risk on day zero (BUG D1).
   static Future<List<ClassStudent>> getClassStudents({
     required String classCode,
     required String teacherId,
   }) async {
     final data = await _supabase
         .from('profiles')
-        .select('id, username, xp, level, streak_days, total_words_answered, total_correct, last_played_date')
+        .select(
+          'id, username, xp, level, streak_days, total_words_answered, '
+          'total_correct, last_played_date, class_code, created_at',
+        )
         .eq('class_code', classCode)
         .eq('is_teacher', false)   // exclude teacher rows
         .neq('id', teacherId)      // belt-and-suspenders: also exclude by id
@@ -102,13 +111,13 @@ class AnalyticsService {
     if (classCodes.isEmpty) return const <String, int>{};
     final data = await _supabase
         .from('profiles')
-        .select('class_code, last_played_date')
+        .select('class_code, last_played_date, created_at')
         .inFilter('class_code', classCodes)
         .eq('is_teacher', false)
         .neq('id', teacherId);
 
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
+    final now = DateTime.now();
+    final todayOnly = DateTime(now.year, now.month, now.day);
     final result = <String, int>{};
     for (final row in data as List) {
       final code = row['class_code'] as String?;
@@ -116,7 +125,13 @@ class AnalyticsService {
       final lastPlayed = row['last_played_date'] as String?;
       bool atRisk;
       if (lastPlayed == null) {
-        atRisk = true;
+        // Never-played floor: only flag students whose account is older than
+        // 24 h. Mirrors ClassStudent.isAtRisk so per-class and cross-class
+        // counts agree (BUG D1).
+        final createdRaw = row['created_at'] as String?;
+        final created =
+            createdRaw == null ? null : DateTime.tryParse(createdRaw);
+        atRisk = created != null && now.difference(created).inHours >= 24;
       } else {
         final last = DateTime.parse(lastPlayed);
         final lastOnly = DateTime(last.year, last.month, last.day);

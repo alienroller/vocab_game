@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../models/exam_participant.dart';
 import '../../models/exam_session.dart';
@@ -37,7 +38,8 @@ class _TeacherExamResultsScreenState
       final session = await ExamService.fetchSession(widget.sessionId);
       final participants =
           await ExamService.fetchParticipants(widget.sessionId);
-      final questions = await ExamService.fetchQuestions(widget.sessionId);
+      final questions =
+          await ExamService.fetchTeacherQuestions(widget.sessionId);
       final answers = await ExamService.fetchAllAnswers(widget.sessionId);
       if (!mounted) return;
       setState(() {
@@ -346,15 +348,13 @@ class _StudentScoreTile extends StatelessWidget {
   }
 }
 
-// Maps a percentage score onto a color band suitable for a vocab-learning
-// app. Bands intentionally sit below the traditional US grading scale so that
-// mid-range scores (e.g. 56 %) read as "keep practicing" (amber) rather than
-// "failing" (red).
+// BUG E4 — single source of truth for grade colors lives in AppTheme.
+// Reads the teacher's preset (lenient/strict) from Hive so a teacher who
+// prefers strict US bands sees them across both the per-student tile and
+// the class-summary circle.
 Color _gradeColor(double pct) {
-  if (pct >= 70) return Colors.green;
-  if (pct >= 55) return Colors.amber;
-  if (pct >= 40) return Colors.orange;
-  return Colors.redAccent;
+  final raw = Hive.box('userProfile').get('teacher_grade_band') as String?;
+  return AppTheme.gradeColor(pct, band: AppTheme.gradeBandFromString(raw));
 }
 
 // ─── Question accuracy tile ──────────────────────────────────────────────────

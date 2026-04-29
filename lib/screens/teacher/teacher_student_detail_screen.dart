@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../models/class_student.dart';
 import '../../models/assignment_progress.dart';
@@ -23,19 +25,22 @@ class _TeacherStudentDetailScreenState
     extends ConsumerState<TeacherStudentDetailScreen> {
   Map<String, AssignmentProgress>? _progressMap;
   List<Map<String, dynamic>> _assignments = []; // We will fetch basic info of all active class assignments
+  List<Map<String, dynamic>> _weakWords = const [];
+  bool _loadingWeakWords = true;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _loadProgress();
+    _loadWeakWords();
   }
 
   Future<void> _loadProgress() async {
     try {
       final progressMap = await AssignmentService.getStudentProgressMap(studentId: widget.student.id);
       final assignmentsList = await AssignmentService.getStudentAssignments(classCode: widget.student.classCode ?? '');
-      
+
       if (mounted) {
         setState(() {
           _progressMap = progressMap;
@@ -46,6 +51,49 @@ class _TeacherStudentDetailScreenState
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Loads this student's hardest words for the per-word breakdown
+  /// (BUG SD2). Fails silently — the section auto-collapses if empty.
+  Future<void> _loadWeakWords() async {
+    try {
+      final rows = await AssignmentService.getStudentWeakWords(
+        studentId: widget.student.id,
+        limit: 10,
+      );
+      if (!mounted) return;
+      setState(() {
+        _weakWords = rows;
+        _loadingWeakWords = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingWeakWords = false);
+    }
+  }
+
+  /// Copies a teacher → student nudge message template to the clipboard
+  /// AND opens a share sheet so the teacher can paste it into whatever
+  /// chat app the family uses (BUG SD4). Single-tap fix for the most
+  /// common at-risk intervention.
+  Future<void> _nudgeStudent() async {
+    final daysSince = widget.student.daysSinceActive;
+    final nameish = '@${widget.student.username}';
+    final body = daysSince == null
+        ? 'Hi $nameish — when you have a moment, please open VocabGame '
+            'and start a quick practice session. Even 5 minutes a day adds up.'
+        : 'Hi $nameish — I noticed your last VocabGame practice was '
+            '$daysSince days ago. Spend 5 minutes today to keep your streak '
+            'and grades on track.';
+    await Clipboard.setData(ClipboardData(text: body));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Message copied. Opening share sheet…'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    await Share.share(body);
   }
 
   Future<void> _confirmRemove() async {
@@ -117,6 +165,13 @@ class _TeacherStudentDetailScreenState
       appBar: AppBar(
         title: Text('@${widget.student.username}'),
         actions: [
+          // BUG SD4 — Nudge action surfaces a copy/share message template
+          // so the teacher can paste it into Telegram / WhatsApp / SMS.
+          IconButton(
+            tooltip: 'Send a nudge',
+            icon: const Icon(Icons.notifications_active_outlined),
+            onPressed: _nudgeStudent,
+          ),
           if (hasClass)
             PopupMenuButton<String>(
               tooltip: 'Student actions',
@@ -176,17 +231,30 @@ class _TeacherStudentDetailScreenState
               ),
               child: Column(
                 children: [
-                  _DetailRow('Total Words Answered', '${widget.student.totalWordsAnswered}'),
+                  _DetailRow('Total words answered', '${widget.student.totalWordsAnswered}'),
                   const Divider(),
-                  _DetailRow('Total Correct Answers', '${widget.student.totalCorrect}'),
+                  _DetailRow('Total correct answers', '${widget.student.totalCorrect}'),
                   const Divider(),
-                  _DetailRow('Last Active', widget.student.daysSinceActive == null ? 'Never' : (widget.student.daysSinceActive == 0 ? 'Today' : '${widget.student.daysSinceActive} days ago')),
+                  // BUG SD3 — sentence case to match Dashboard / My Classes.
+                  _DetailRow(
+                    'Last active',
+                    widget.student.daysSinceActive == null
+                        ? 'Never'
+                        : (widget.student.daysSinceActive == 0
+                            ? 'Today'
+                            : '${widget.student.daysSinceActive} day'
+                                '${widget.student.daysSinceActive == 1 ? '' : 's'} ago'),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            const Text('Assignments Progress', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            // BUG SD2 — per-word weak spots. Highest-impact UX gap on this
+            // screen ("which words is Sardor failing?" had no answer).
+            _buildWeakWordsSection(isDark),
+
+            const Text('Assignments progress', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             
             if (_loading)
@@ -242,6 +310,103 @@ class _TeacherStudentDetailScreenState
               }),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Per-word breakdown for this student. Shows their hardest 5 words
+  /// (worst accuracy) so the teacher can drill into a remediation
+  /// conversation. Auto-collapses when there's nothing to show.
+  Widget _buildWeakWordsSection(bool isDark) {
+    if (_loadingWeakWords) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: AppTheme.glassCard(isDark: isDark),
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    if (_weakWords.isEmpty) return const SizedBox(height: 8);
+
+    final top = _weakWords.take(5).toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Hardest words for this student',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text('Sorted by accuracy (lowest first)',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+          const SizedBox(height: 12),
+          Container(
+            decoration: AppTheme.glassCard(isDark: isDark),
+            child: Column(
+              children: [
+                for (var i = 0; i < top.length; i++) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                top[i]['word_english']?.toString() ?? '',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15),
+                              ),
+                              Text(
+                                top[i]['word_uzbek']?.toString() ?? '',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? AppTheme.textSecondaryDark
+                                      : AppTheme.textSecondaryLight,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _accChip(top[i]),
+                      ],
+                    ),
+                  ),
+                  if (i < top.length - 1) const Divider(height: 1),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _accChip(Map<String, dynamic> row) {
+    final shown = (row['times_shown'] as num?)?.toInt() ?? 0;
+    final correct = (row['times_correct'] as num?)?.toInt() ?? 0;
+    final pct = shown == 0 ? 0 : ((correct / shown) * 100).round();
+    final color = pct >= 70
+        ? Colors.green
+        : pct >= 40
+            ? Colors.orange
+            : Colors.red;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '$pct% ($correct/$shown)',
+        style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }

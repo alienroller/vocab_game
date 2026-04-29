@@ -14,6 +14,7 @@ class TeacherOnboardingChecklist extends StatelessWidget {
   final bool hasStudents;
   final bool hasAssignment;
   final bool hasMessage;
+  final bool isLoading;
   final VoidCallback onShareCode;
   final VoidCallback onOpenLibrary;
   final VoidCallback onPinMessage;
@@ -26,12 +27,17 @@ class TeacherOnboardingChecklist extends StatelessWidget {
     required this.onShareCode,
     required this.onOpenLibrary,
     required this.onPinMessage,
+    this.isLoading = false,
   });
 
   bool get _allDone => hasStudents && hasAssignment && hasMessage;
 
   @override
   Widget build(BuildContext context) {
+    // BUG D8 — while the dashboard's first fetch is still in flight, the
+    // checklist used to flash all-undone for a frame and then re-render
+    // half-checked. Suppress until the caller signals a resolved state.
+    if (isLoading) return const SizedBox.shrink();
     if (_allDone) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 

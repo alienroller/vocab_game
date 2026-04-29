@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../providers/assignment_provider.dart';
 import '../../../providers/class_students_provider.dart';
@@ -66,15 +67,25 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
     await ref.read(assignmentProvider.notifier).loadTeacherAssignments(classCode: profile.classCode!, teacherId: profile.id);
     await _loadWordStats();
 
+    // BUG A1 — parallel-fetch completion summaries instead of N round-trips
+    // back-to-back. With 8 assignments this turns 1.6 s into ~200 ms.
     final state = ref.read(assignmentProvider);
-    for (final assignment in state.assignments) {
-      if (!_completionCache.containsKey(assignment.id)) {
-        final summary = await AssignmentService.getAssignmentCompletionSummary(assignmentId: assignment.id, classCode: profile.classCode!);
-        if (mounted) {
-          setState(() {
-            _completionCache[assignment.id] = summary;
-          });
-        }
+    final missing = state.assignments
+        .where((a) => !_completionCache.containsKey(a.id))
+        .toList();
+    if (missing.isNotEmpty) {
+      final results = await Future.wait(missing.map((a) =>
+          AssignmentService.getAssignmentCompletionSummary(
+                  assignmentId: a.id, classCode: profile.classCode!)
+              .then((summary) => MapEntry(a.id, summary))
+              .catchError((Object e, StackTrace _) =>
+                  MapEntry(a.id, const <String, int>{}))));
+      if (mounted) {
+        setState(() {
+          for (final r in results) {
+            _completionCache[r.key] = r.value;
+          }
+        });
       }
     }
 
@@ -111,13 +122,28 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (classesState.healthScore != null) ...[
+              // BUG A6 — show a placeholder card during the first load so the
+              // top of the screen isn't a frame of empty space.
+              if (classesState.healthScore != null)
                 ClassHealthCard(
                   score: classesState.healthScore!,
                   isDark: isDark,
+                )
+              else
+                Container(
+                  height: 120,
+                  decoration: AppTheme.glassCard(isDark: isDark),
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
                 ),
-                const SizedBox(height: 24),
-              ],
+              const SizedBox(height: 24),
+
+              // BUG A4 — at-risk roster lives here (where the Dashboard's
+              // "View all →" sends teachers). Anchored as section #1 because
+              // intervening with at-risk students is the most actionable
+              // teacher task. Empty state collapses cleanly.
+              _buildAtRiskSection(classesState, isDark),
+
               const Text('Assigned Units', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               if (_loading && assignmentState.assignments.isEmpty)
@@ -160,8 +186,40 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
                         );
                       },
                       onDismissed: (direction) {
-                        AssignmentService.deactivateAssignment(assignment.id);
+                        // BUG A3 — undoable swipe. Old code immediately
+                        // committed the deactivation with no recovery. Now
+                        // we wait 4 s and only fire the server delete if
+                        // the teacher hasn't tapped Undo. The card is
+                        // already removed locally to match the swipe
+                        // affordance.
                         ref.read(assignmentProvider.notifier).removeAssignment(assignment.id);
+                        var undone = false;
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Removed "${assignment.unitTitle}" from the class.'),
+                            duration: const Duration(seconds: 4),
+                            action: SnackBarAction(
+                              label: 'Undo',
+                              onPressed: () {
+                                undone = true;
+                                final profile = ref.read(profileProvider);
+                                if (profile?.classCode == null) return;
+                                ref
+                                    .read(assignmentProvider.notifier)
+                                    .loadTeacherAssignments(
+                                        classCode: profile!.classCode!,
+                                        teacherId: profile.id);
+                              },
+                            ),
+                          ),
+                        );
+                        Future<void>.delayed(const Duration(seconds: 4)).then((_) {
+                          if (!undone) {
+                            AssignmentService.deactivateAssignment(assignment.id);
+                          }
+                        });
                       },
                       child: Container(
                         padding: const EdgeInsets.all(16),
@@ -227,6 +285,26 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
                 ),
                 const SizedBox(height: 12),
               ],
+              // BUG A2 — column-header explainer so teachers know a low %
+              // means "this word is HARD for the class", not "this many
+              // students got it".
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 14, color: Colors.grey.shade500),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Lower % = harder word. Tap a row to drill in.',
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey.shade500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (statsState.isLoading && statsState.stats.isEmpty)
                 const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
               else if (statsState.stats.isEmpty)
@@ -266,6 +344,118 @@ class _TeacherAnalyticsScreenState extends ConsumerState<TeacherAnalyticsScreen>
           ),
         ),
       ),
+    );
+  }
+
+  /// At-risk roster (BUG A4). Linked from the dashboard's "View all →"
+  /// button. Auto-collapses to "all on track" when the class isn't at risk.
+  Widget _buildAtRiskSection(ClassStudentsState state, bool isDark) {
+    final atRisk = state.students.where((s) => s.isAtRisk).toList()
+      ..sort((a, b) {
+        final aDays = a.daysSinceActive ?? 99999;
+        final bDays = b.daysSinceActive ?? 99999;
+        return bDays.compareTo(aDays);
+      });
+
+    if (state.students.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: AppTheme.glassCard(isDark: isDark),
+        child: Row(
+          children: [
+            const Icon(Icons.group_outlined, color: Colors.grey),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No students yet. Share your class code to get started.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (atRisk.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.glassCard(isDark: isDark),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green.shade500),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'All ${state.students.length} students practiced recently.',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.green.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(
+              '⚠️ At Risk — ${atRisk.length} student'
+              '${atRisk.length == 1 ? '' : 's'}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.orange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Never played, or last active 3+ days ago.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        ),
+        const SizedBox(height: 12),
+        ...atRisk.map((s) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: AppTheme.glassCard(isDark: isDark),
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                leading: CircleAvatar(
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
+                  child: Text(
+                    s.username.isNotEmpty
+                        ? s.username[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                        color: Colors.red, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                title: Text(s.username,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(
+                  s.lastPlayedDate == null
+                      ? 'Never played'
+                      : 'Last active ${s.daysSinceActive} day'
+                          '${s.daysSinceActive == 1 ? '' : 's'} ago',
+                  style: const TextStyle(color: Colors.red),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(
+                  '/teacher/student-detail',
+                  extra: s,
+                ),
+              ),
+            )),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }

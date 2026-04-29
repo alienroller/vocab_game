@@ -10,9 +10,11 @@ import 'package:vocab_game/widgets/empty_vocab_list.dart';
 
 import '../providers/profile_provider.dart';
 import '../providers/streak_provider.dart';
+import '../providers/student_exam_provider.dart';
 import '../providers/vocab_provider.dart';
 import '../providers/assignment_provider.dart';
 import '../providers/friendship_provider.dart';
+import '../services/notification_service.dart';
 import '../services/streak_calculator.dart';
 import '../models/vocab.dart';
 import '../models/teacher_message.dart';
@@ -48,6 +50,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadClassData();
+      _maybeRequestNotificationPermission();
 
       AppVersionInfo.instance.checkForUpdate().then((isUpdateAvailable) {
         if (isUpdateAvailable && mounted) {
@@ -66,20 +69,137 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
+  /// One-shot permission request the first time a student lands on Home.
+  /// Skipped on later launches so we don't keep prompting if they declined
+  /// (BUG C1). The OS de-dupes the system dialog anyway, but tracking the
+  /// "we asked" bit means we can stop calling the API entirely.
+  void _maybeRequestNotificationPermission() {
+    final box = Hive.box('notif_state');
+    final asked = box.get('permission_asked', defaultValue: false) as bool;
+    if (asked) return;
+    box.put('permission_asked', true);
+    NotificationService.instance.requestPermission(
+      onGranted: () {},
+      onDenied: () {},
+      onPermanentlyDenied: () {},
+    );
+  }
+
   void _loadClassData() async {
     final profile = ref.read(profileProvider);
     if (profile == null || profile.classCode == null) return;
 
-    ref
+    await ref
         .read(assignmentProvider.notifier)
         .loadStudentAssignments(
           classCode: profile.classCode!,
           studentId: profile.id,
         );
 
+    // Diff fetched assignments against the Hive 'seen' set. New ones fire
+    // a local notification so the student knows a teacher just posted
+    // something — without this, polling silently updates the home screen
+    // and the student misses it (BUG C1).
+    _notifyOnNewAssignments();
+
     final msg = await TeacherMessageService.getMessage(profile.classCode!);
     if (mounted) {
       setState(() => _teacherMessage = msg);
+    }
+    _notifyOnNewMessage(msg);
+  }
+
+  /// Compares the current assignment list against the Hive 'seen' set and
+  /// fires a local notification for any IDs we've never shown. On the
+  /// very first run for a student, the seen set is seeded silently so we
+  /// don't spam notifications for pre-existing assignments.
+  void _notifyOnNewAssignments() {
+    try {
+      final box = Hive.box('notif_state');
+      final assignments =
+          ref.read(assignmentProvider).assignments.map((a) => a.id).toSet();
+      final seenList = (box.get('seen_assignments') as List?)
+          ?.map((e) => e.toString())
+          .toSet();
+      if (seenList == null) {
+        // First poll for this device — seed silently.
+        box.put('seen_assignments', assignments.toList());
+        return;
+      }
+      final newIds = assignments.difference(seenList);
+      if (newIds.isEmpty) return;
+      final fresh = ref
+          .read(assignmentProvider)
+          .assignments
+          .where((a) => newIds.contains(a.id));
+      for (final a in fresh) {
+        unawaited(NotificationService.notifyNewAssignment(
+          unitTitle: a.unitTitle,
+          bookTitle: a.bookTitle,
+          assignmentHashId: NotificationService.idFromString(a.id),
+        ));
+      }
+      box.put('seen_assignments', assignments.toList());
+    } catch (e) {
+      debugPrint('Assignment notify diff failed: $e');
+    }
+  }
+
+  void _notifyOnNewMessage(TeacherMessage? msg) {
+    try {
+      final box = Hive.box('notif_state');
+      final lastId = box.get('seen_message_id') as String?;
+      if (msg == null) {
+        // Message was cleared — drop the seen pointer so a re-pin notifies.
+        if (lastId != null) box.delete('seen_message_id');
+        return;
+      }
+      // We use updated_at + classCode as a synthetic id since teacher_messages
+      // PK is class_code (one-row-per-class), and the message body changes
+      // whenever the teacher edits.
+      final synthetic = '${msg.classCode}|${msg.message.hashCode}';
+      if (lastId == null) {
+        // First-run seed: don't notify.
+        box.put('seen_message_id', synthetic);
+        return;
+      }
+      if (lastId == synthetic) return;
+      box.put('seen_message_id', synthetic);
+      unawaited(NotificationService.notifyTeacherMessage(msg.message));
+    } catch (e) {
+      debugPrint('Message notify diff failed: $e');
+    }
+  }
+
+  /// Listens to the active-exams provider and fires a notification when a
+  /// new (lobby OR in_progress) exam appears that we haven't seen before.
+  /// Called from build() via ref.listen so it tracks across polls.
+  void _notifyOnNewExams(List<dynamic> exams) {
+    try {
+      final box = Hive.box('notif_state');
+      final ids = exams.map((e) => e.id as String).toSet();
+      final seenList = (box.get('seen_exams') as List?)
+          ?.map((e) => e.toString())
+          .toSet();
+      if (seenList == null) {
+        box.put('seen_exams', ids.toList());
+        return;
+      }
+      final newIds = ids.difference(seenList);
+      for (final newId in newIds) {
+        final session = exams.firstWhere(
+          (e) => e.id == newId,
+          orElse: () => null,
+        );
+        if (session == null) continue;
+        unawaited(NotificationService.notifyNewExam(
+          examTitle: session.title as String,
+          sessionHashId: NotificationService.idFromString(newId),
+        ));
+      }
+      box.put('seen_exams', ids.toList());
+    } catch (e) {
+      debugPrint('Exam notify diff failed: $e');
     }
   }
 
@@ -130,6 +250,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final profileBox = Hive.box('userProfile');
     final classCode = profileBox.get('classCode') as String?;
     final myUsername = profileBox.get('username') as String?;
+    // Guard: an empty/null class_code would otherwise query all
+    // class-less profiles globally (cross-school orphans) — verified the
+    // existing isEmpty check covers this (P8 audit).
     if (classCode == null || classCode.isEmpty || myUsername == null) return;
 
     try {
@@ -244,6 +367,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final vocabList = ref.watch(vocabProvider);
     final profile = ref.watch(profileProvider);
     final assignmentState = ref.watch(assignmentProvider);
+
+    // Drives the new-exam local notification. The provider auto-polls
+    // every 15s; we react to value changes (not loading states) so we
+    // don't spam notifications while it cycles. (BUG C1)
+    ref.listen(studentActiveExamsProvider, (prev, next) {
+      next.whenData(_notifyOnNewExams);
+    });
+
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final canPlay = vocabList.length >= 4;
@@ -313,6 +444,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             child: SingleChildScrollView(
               child: Column(
                 children: [
+                  // BUG O7 — preview-mode banner. Only renders when a
+                  // teacher tapped "Preview as student" from their
+                  // profile. Tapping it pops them back to the dashboard.
+                  if (Hive.box('userProfile').get('previewAsStudent', defaultValue: false) as bool)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Material(
+                        color: AppTheme.violet.withValues(alpha: isDark ? 0.18 : 0.1),
+                        borderRadius: AppTheme.borderRadiusSm,
+                        child: InkWell(
+                          borderRadius: AppTheme.borderRadiusSm,
+                          onTap: () async {
+                            await Hive.box('userProfile')
+                                .delete('previewAsStudent');
+                            if (context.mounted) {
+                              context.go('/teacher/dashboard');
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            child: Row(
+                              children: const [
+                                Icon(Icons.visibility,
+                                    color: AppTheme.violet, size: 20),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Previewing as a student.',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.violet,
+                                    ),
+                                  ),
+                                ),
+                                Text('Exit preview',
+                                    style: TextStyle(
+                                      color: AppTheme.violet,
+                                      fontWeight: FontWeight.w600,
+                                    )),
+                                SizedBox(width: 4),
+                                Icon(Icons.chevron_right,
+                                    color: AppTheme.violet, size: 18),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   // ─── Hero Header ────────────────────────────────────
                   Container(
                     margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),

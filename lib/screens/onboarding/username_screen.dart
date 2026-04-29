@@ -166,95 +166,47 @@ class _UsernameScreenState extends State<UsernameScreen> {
                           color: AppTheme.error,
                           fontWeight: FontWeight.w600),
                     ),
-                  const SizedBox(height: 24),
-                  // Teacher toggle
-                  GestureDetector(
-                    onTap: () => setState(() => _isTeacher = !_isTeacher),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: _isTeacher
-                            ? AppTheme.violet.withValues(alpha: isDark ? 0.15 : 0.08)
-                            : (isDark
-                                ? Colors.white.withValues(alpha: 0.04)
-                                : Colors.black.withValues(alpha: 0.03)),
-                        borderRadius: AppTheme.borderRadiusMd,
-                        border: Border.all(
-                          color: _isTeacher
-                              ? AppTheme.violet.withValues(alpha: 0.4)
-                              : (isDark
-                                  ? Colors.white.withValues(alpha: 0.08)
-                                  : Colors.black.withValues(alpha: 0.06)),
+                  const SizedBox(height: 28),
+                  // BUG O2 — old code hid the role decision below the
+                  // username field as a tiny switch. New design surfaces
+                  // it as two equal-weight cards so a brand-new teacher
+                  // sees the option clearly.
+                  Text(
+                    'I am a…',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? AppTheme.textSecondaryDark
+                          : AppTheme.textSecondaryLight,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _RoleCard(
+                          emoji: '🎒',
+                          label: 'Student',
+                          subtitle: 'Practice & compete',
+                          selected: !_isTeacher,
+                          onTap: () => setState(() => _isTeacher = false),
+                          isDark: isDark,
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          const Text('🎓', style: TextStyle(fontSize: 20)),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'I am a teacher',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                    color: _isTeacher
-                                        ? AppTheme.violet
-                                        : (isDark ? Colors.white70 : Colors.black54),
-                                  ),
-                                ),
-                                Text(
-                                  'Enable to create classes for your students',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isDark ? AppTheme.textSecondaryDark : AppTheme.textSecondaryLight,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: 44,
-                            height: 26,
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(13),
-                              color: _isTeacher
-                                  ? AppTheme.violet
-                                  : (isDark
-                                      ? Colors.white.withValues(alpha: 0.12)
-                                      : Colors.black.withValues(alpha: 0.1)),
-                            ),
-                            child: AnimatedAlign(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOutCubic,
-                              alignment: _isTeacher
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.15),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 1),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _RoleCard(
+                          emoji: '🧑‍🏫',
+                          label: 'Teacher',
+                          subtitle: 'Manage a class',
+                          selected: _isTeacher,
+                          onTap: () => setState(() => _isTeacher = true),
+                          isDark: isDark,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                   const Spacer(),
                   SizedBox(
@@ -320,5 +272,82 @@ class _UsernameScreenState extends State<UsernameScreen> {
       return const Icon(Icons.cancel, color: Colors.red);
     }
     return null;
+  }
+}
+
+/// One of the two role cards (Student / Teacher) shown above the Continue
+/// button (BUG O2). Active state uses the violet accent + a thicker border
+/// so the choice reads as a real decision, not a hidden setting.
+class _RoleCard extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final String subtitle;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _RoleCard({
+    required this.emoji,
+    required this.label,
+    required this.subtitle,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected
+        ? AppTheme.violet.withValues(alpha: isDark ? 0.18 : 0.1)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.white.withValues(alpha: 0.7));
+    final borderColor = selected
+        ? AppTheme.violet
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.black.withValues(alpha: 0.08));
+    return Material(
+      color: Colors.transparent,
+      borderRadius: AppTheme.borderRadiusMd,
+      child: InkWell(
+        borderRadius: AppTheme.borderRadiusMd,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: AppTheme.borderRadiusMd,
+            border: Border.all(color: borderColor, width: selected ? 2 : 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 30)),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: selected ? AppTheme.violet : null,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark
+                      ? AppTheme.textSecondaryDark
+                      : AppTheme.textSecondaryLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

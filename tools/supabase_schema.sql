@@ -429,3 +429,145 @@ SELECT cron.schedule(
   '1 0 * * 1',
   'SELECT award_weekly_hall_of_fame();'
 );
+
+-- ─── 24. SECURE STUDENT ACCESS TO EXAM QUESTIONS ──────────────────────────
+-- Mirrors migration 015. Students must NOT see correct_answer; the only
+-- path to read questions is through this RPC, which omits that column.
+DROP POLICY IF EXISTS "exam_questions_participant_read" ON exam_questions;
+
+CREATE OR REPLACE FUNCTION public.get_student_exam_questions(
+  p_session uuid,
+  p_student text
+)
+RETURNS TABLE(
+  id uuid,
+  order_index int,
+  prompt text,
+  options jsonb
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT q.id, q.order_index, q.prompt, q.options
+    FROM exam_questions q
+   WHERE q.session_id = p_session
+     AND EXISTS (
+           SELECT 1 FROM exam_participants p
+            WHERE p.session_id = p_session
+              AND p.student_id = p_student
+              AND p.status IN ('joined','in_progress','completed')
+         )
+   ORDER BY q.order_index;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_student_exam_questions(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_student_exam_questions(uuid, text) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_student_exam_review(
+  p_session uuid,
+  p_student text
+)
+RETURNS TABLE(
+  question_id uuid,
+  prompt text,
+  correct_answer text,
+  my_answer text,
+  is_correct boolean
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT q.id            AS question_id,
+         q.prompt        AS prompt,
+         q.correct_answer AS correct_answer,
+         a.answer        AS my_answer,
+         a.is_correct    AS is_correct
+    FROM exam_answers a
+    JOIN exam_questions q ON q.id = a.question_id
+   WHERE a.session_id = p_session
+     AND a.student_id = p_student
+   ORDER BY q.order_index;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_student_exam_review(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_student_exam_review(uuid, text) TO anon, authenticated;
+
+-- Strip the underlying SELECT grant so direct table reads are blocked.
+DROP POLICY IF EXISTS "exam_questions_select"       ON exam_questions;
+DROP POLICY IF EXISTS "exam_questions_teacher_read" ON exam_questions;
+REVOKE SELECT ON exam_questions FROM anon;
+REVOKE SELECT ON exam_questions FROM authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_teacher_exam_questions(
+  p_session uuid,
+  p_teacher text
+)
+RETURNS TABLE(
+  id uuid,
+  order_index int,
+  prompt text,
+  correct_answer text,
+  options jsonb
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT q.id, q.order_index, q.prompt, q.correct_answer, q.options
+    FROM exam_questions q
+   WHERE q.session_id = p_session
+     AND EXISTS (
+           SELECT 1 FROM exam_sessions s
+            WHERE s.id = p_session
+              AND s.teacher_id = p_teacher
+         )
+     AND EXISTS (
+           SELECT 1 FROM profiles pr
+            WHERE pr.id::text = p_teacher
+              AND pr.is_teacher = true
+         )
+   ORDER BY q.order_index;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_teacher_exam_questions(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_teacher_exam_questions(uuid, text) TO anon, authenticated;
+
+-- BUG E6 — force-end an exam atomically: flip session AND mark
+-- unfinished participants as timed_out so the teacher's results screen
+-- shows the right status.
+CREATE OR REPLACE FUNCTION public.force_end_exam(p_session uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE exam_sessions
+     SET status = 'completed',
+         ended_at = NOW()
+   WHERE id = p_session
+     AND status IN ('lobby', 'in_progress');
+
+  UPDATE exam_participants p
+     SET status = 'timed_out',
+         finished_at = NOW(),
+         correct_count = COALESCE((
+           SELECT COUNT(*)::int FROM exam_answers a
+            WHERE a.session_id = p.session_id
+              AND a.student_id = p.student_id
+              AND a.is_correct = true
+         ), 0),
+         total_count = COALESCE((
+           SELECT COUNT(*)::int FROM exam_answers a
+            WHERE a.session_id = p.session_id
+              AND a.student_id = p.student_id
+         ), 0)
+   WHERE p.session_id = p_session
+     AND p.status IN ('joined', 'in_progress', 'invited');
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.force_end_exam(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.force_end_exam(uuid) TO anon, authenticated;

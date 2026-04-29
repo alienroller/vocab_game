@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../models/class_student.dart';
 import '../../models/teacher_class.dart';
 import '../../models/user_profile.dart';
@@ -65,11 +67,12 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
   Future<void> _openCreateSheet() async {
     final classesState = ref.read(teacherClassesProvider);
     if (classesState.atLimit) {
+      // BUG MC3 — clearer phrasing + actionable next step.
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'You already have ${ClassService.maxClassesPerTeacher} classes '
-            '(the maximum).',
+            'You\'ve reached the ${ClassService.maxClassesPerTeacher}-class '
+            'limit. Delete one to add another.',
           ),
           backgroundColor: Colors.orange,
         ),
@@ -175,14 +178,70 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
   }
 
   Future<void> _confirmDelete(TeacherClass cls) async {
+    // BUG MC4 — preflight counts so the confirmation dialog is honest about
+    // what's about to be wiped, instead of "and any past exams" hand-wave.
+    final supa = Supabase.instance.client;
+    int assignments = 0;
+    int exams = 0;
+    bool hasMessage = false;
+    try {
+      final results = await Future.wait<List>([
+        supa
+            .from('assignments')
+            .select('id')
+            .eq('class_code', cls.code)
+            .eq('is_active', true),
+        supa.from('exam_sessions').select('id').eq('class_code', cls.code),
+        supa
+            .from('teacher_messages')
+            .select('class_code')
+            .eq('class_code', cls.code)
+            .limit(1),
+      ]);
+      assignments = (results[0] as List).length;
+      exams = (results[1] as List).length;
+      hasMessage = (results[2] as List).isNotEmpty;
+    } catch (_) {
+      // Network blip — show a softer message rather than blocking deletion.
+    }
+
+    if (!mounted) return;
+    final pieces = <String>[
+      if (assignments > 0)
+        '$assignments assignment${assignments == 1 ? '' : 's'}',
+      if (exams > 0) '$exams past exam${exams == 1 ? '' : 's'}',
+      if (hasMessage) '1 pinned message',
+    ];
+    final detail = pieces.isEmpty
+        ? 'No assignments, exams, or messages are attached.'
+        : 'Will also remove: ${pieces.join(', ')}.';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete class?'),
-        content: Text(
-          'This will permanently remove "${cls.className.isEmpty ? cls.code : cls.className}"'
-          ' along with its pinned message, assignments, and any past exams.'
-          ' This cannot be undone.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '"${cls.className.isEmpty ? cls.code : cls.className}" '
+              '(${cls.code}) will be permanently deleted.',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              detail,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This cannot be undone.',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -268,6 +327,15 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
   List<ClassStudent> _getSortedStudents(List<ClassStudent> students) {
     final list = List<ClassStudent>.from(students);
     list.sort((a, b) {
+      // BUG MC2 — students with zero answers should always sink to the
+      // bottom of an Accuracy sort, regardless of asc/desc, since their
+      // accuracy displays as "—" and a numeric zero would otherwise
+      // crowd the top in ascending mode.
+      if (_sortType == StudentSortType.accuracy) {
+        final aHas = a.totalWordsAnswered > 0;
+        final bHas = b.totalWordsAnswered > 0;
+        if (aHas != bHas) return aHas ? -1 : 1;
+      }
       int cmp;
       switch (_sortType) {
         case StudentSortType.xp:
@@ -339,18 +407,19 @@ class _TeacherMyClassesScreenState extends ConsumerState<TeacherMyClassesScreen>
               onLongPress: _openClassActionsSheet,
             ),
 
-            // Long-press hint (only relevant when teacher has 2+ classes).
-            if (teacherClasses.classes.length > 1)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Tap to switch • Long-press for options',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
+            // BUG MC1 — single-class teachers also need to discover that
+            // long-pressing a class chip exposes Copy / Share / Delete.
+            // Show the hint regardless of class count.
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Long-press a class for options',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ),
+            ),
 
             // Active-class info card
             if (activeCode != null)

@@ -22,8 +22,11 @@ class TeacherMessageService {
       );
 
   /// Sets the same message on multiple classes. Used when a teacher picks
-  /// "Pin to all my classes" — one round-trip per class is fine for the
-  /// teacher's class limit (5).
+  /// "Pin to all my classes". BUG P3 — old code did a serial DELETE+INSERT
+  /// per class (10 round-trips for 5 classes). Now we do one upsert with
+  /// onConflict, which the migration 012 unique constraint supports.
+  /// Falls back to the delete-then-insert path if upsert errors (older
+  /// databases that pre-date the unique constraint).
   static Future<void> setMessageForClasses({
     required List<String> classCodes,
     required String teacherId,
@@ -32,17 +35,29 @@ class TeacherMessageService {
     if (classCodes.isEmpty) return;
     final trimmed = message.trim();
     final now = DateTime.now().toIso8601String();
-    for (final code in classCodes) {
+    final rows = classCodes
+        .map((code) => {
+              'class_code': code,
+              'teacher_id': teacherId,
+              'message': trimmed,
+              'updated_at': now,
+            })
+        .toList();
+    try {
       await _supabase
           .from('teacher_messages')
-          .delete()
-          .eq('class_code', code);
-      await _supabase.from('teacher_messages').insert({
-        'class_code': code,
-        'teacher_id': teacherId,
-        'message': trimmed,
-        'updated_at': now,
-      });
+          .upsert(rows, onConflict: 'class_code');
+      return;
+    } catch (_) {
+      // Fallback: pre-012 schemas don't have the unique constraint, so
+      // upsert won't work. Delete-then-insert per class.
+      for (final code in classCodes) {
+        await _supabase
+            .from('teacher_messages')
+            .delete()
+            .eq('class_code', code);
+      }
+      await _supabase.from('teacher_messages').insert(rows);
     }
   }
 

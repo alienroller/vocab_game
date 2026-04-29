@@ -17,6 +17,7 @@ import '../../models/teacher_class.dart';
 import '../../models/teacher_message.dart';
 import '../../widgets/class_switcher.dart';
 import '../../widgets/teacher_onboarding_checklist.dart';
+import 'create_class_sheet.dart';
 
 class TeacherDashboardScreen extends ConsumerStatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -25,9 +26,11 @@ class TeacherDashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<TeacherDashboardScreen> createState() => _TeacherDashboardScreenState();
 }
 
-class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen> {
+class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
+    with WidgetsBindingObserver {
   TeacherMessage? _message;
   bool _isLoadingMessage = true;
+  bool _messageLoadFailed = false;
   String? _className;
   int? _totalActiveAssignments;
   int? _totalAtRiskAllClasses;
@@ -36,6 +39,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadData();
     // Keep the class-picker in the app bar in sync even if the teacher has
     // not visited /teacher/classes this session, then fire the cross-class
@@ -47,6 +51,22 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         unawaited(_loadAtRiskCount());
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // BUG P4 — refresh dashboard data when the teacher returns to the
+    // app from background. Without this, a teacher who left the app open
+    // for an hour saw stale at-risk counts and stale pinned messages.
+    if (state == AppLifecycleState.resumed) {
+      _loadData();
+    }
   }
 
   Future<void> _loadAtRiskCount() async {
@@ -148,7 +168,21 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
 
   Future<void> _switchActiveClass(String newCode) async {
     final profile = ref.read(profileProvider);
-    if (profile == null || profile.classCode == newCode) return;
+    if (profile == null || profile.classCode == newCode) {
+      // BUG D7 — was a hidden no-op when the picker auto-routed to the
+      // already-active class. The strip tap looked like a dead button.
+      // Surface it so the teacher gets feedback.
+      if (mounted && profile?.classCode == newCode) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Already viewing $newCode — pull to refresh if data looks stale.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
     await ref.read(profileProvider.notifier).setClassCode(newCode);
     // classStudentsProvider + dashboard data will reload via the ref.listen
     // in build() — we only need to refresh student data for the new class.
@@ -199,10 +233,20 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         setState(() {
           _message = msg;
           _isLoadingMessage = false;
+          _messageLoadFailed = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _isLoadingMessage = false);
+    } catch (e, s) {
+      // BUG D5 — used to silently swallow the error and leave the card
+      // showing "Pin a message" even when one was pinned. Now we surface
+      // the failure so the teacher can retry.
+      debugPrint('Pinned message fetch failed: $e\n$s');
+      if (mounted) {
+        setState(() {
+          _isLoadingMessage = false;
+          _messageLoadFailed = true;
+        });
+      }
     }
   }
 
@@ -324,12 +368,16 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                             if (sheetContext.mounted) {
                               Navigator.pop(sheetContext);
                             }
-                            if (mounted && pinToAll) {
+                            // BUG D4 — only multi-class teachers got a
+                            // success toast; solo-class teachers heard
+                            // crickets and weren't sure if Save worked.
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    'Pinned to ${allClasses.length} classes.',
-                                  ),
+                                  content: Text(pinToAll
+                                      ? 'Pinned to ${allClasses.length} classes.'
+                                      : 'Message pinned for $activeClassLabel.'),
+                                  duration: const Duration(seconds: 2),
                                 ),
                               );
                             }
@@ -388,6 +436,14 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
     final titleText = _className
         ?? activeClass?.className
         ?? (profile.classCode != null ? 'Class ${profile.classCode}' : 'Dashboard');
+
+    // BUG C7 — when the teacher just deleted their only active class, the
+    // dashboard used to render a half-broken page (no class header, broken
+    // checklist, dead message card). Show a clean empty-state with a single
+    // CTA to create a new class.
+    if (profile.classCode == null) {
+      return _buildNoClassEmptyState(context, profile.id, isDark);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -468,7 +524,13 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
               ],
 
               // 0.5. First-run checklist — auto-hides once all 3 steps done.
+              // Stays hidden while we still don't know whether any of the
+              // three signals is true (avoids the half-second flash where
+              // every box is unchecked, BUG D8).
               TeacherOnboardingChecklist(
+                isLoading: _isLoadingMessage ||
+                    _totalActiveAssignments == null ||
+                    classesState.isLoading,
                 hasStudents: classesState.students.isNotEmpty,
                 hasAssignment: (_totalActiveAssignments ?? 0) > 0,
                 hasMessage: _message != null,
@@ -496,17 +558,42 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('⚠️ At Risk — ${classesState.healthScore!.atRiskCount} students', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.orange)),
-                    if (classesState.healthScore!.atRiskCount > 5)
+                    // BUG D2 — zero-at-risk used to still show the
+                    // ⚠️ warning header. Switched to a positive-tone
+                    // header in that case.
+                    Text(
+                      classesState.healthScore!.atRiskCount == 0
+                          ? '✅ Class is on track'
+                          : '⚠️ At Risk — '
+                              '${classesState.healthScore!.atRiskCount} student'
+                              '${classesState.healthScore!.atRiskCount == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: classesState.healthScore!.atRiskCount == 0
+                            ? Colors.green.shade700
+                            : Colors.orange,
+                      ),
+                    ),
+                    if (classesState.healthScore!.atRiskCount > 0)
                       TextButton(
-                        onPressed: () => context.push('/teacher/analytics'),
+                        // BUG D3 — Analytics now leads with the at-risk
+                        // roster (see _buildAtRiskSection), so this button
+                        // delivers what it promises: a focused list.
+                        onPressed: () => context.go('/teacher/analytics'),
                         child: const Text('View all →'),
                       ),
                   ],
                 ),
                 const SizedBox(height: 12),
                 if (classesState.healthScore!.atRiskCount == 0)
-                  const Text('✅ All students practiced recently', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+                  Text(
+                    'All students practiced in the last 3 days. Keep them going with a fresh assignment or pinned message.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 13,
+                    ),
+                  )
                 else
                   ...classesState.students.where((s) => s.isAtRisk).take(5).map((student) => Container(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -572,6 +659,26 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                           const SizedBox(height: 12),
                           if (_isLoadingMessage)
                             const CircularProgressIndicator()
+                          else if (_messageLoadFailed)
+                            // BUG D5 — surfaces a retry instead of pretending
+                            // there's no message.
+                            Row(
+                              children: [
+                                const Icon(Icons.error_outline,
+                                    size: 16, color: Colors.orange),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Text(
+                                    'Could not load the pinned message.',
+                                    style: TextStyle(color: Colors.orange),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _loadData,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            )
                           else if (_message != null)
                             Text(_message!.message, style: const TextStyle(fontSize: 15))
                           else
@@ -595,6 +702,71 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       if (c.code == code) return c;
     }
     return null;
+  }
+
+  /// Empty-state shown when the teacher has no active class (typically right
+  /// after they deleted their only one). One clear CTA, no broken chrome.
+  Widget _buildNoClassEmptyState(
+    BuildContext context,
+    String teacherId,
+    bool isDark,
+  ) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: isDark ? AppTheme.darkBgGradient : AppTheme.lightBgGradient,
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('🏫', style: TextStyle(fontSize: 64)),
+                const SizedBox(height: 16),
+                Text(
+                  'No active class',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Create your first class so students have a code to join.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: isDark
+                        ? AppTheme.textSecondaryDark
+                        : AppTheme.textSecondaryLight,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final code = await showCreateClassSheet(context);
+                    if (code != null) {
+                      // setClassCode is called inside the sheet — just refresh.
+                      unawaited(_loadData());
+                    }
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create a class'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(220, 48),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => context.push('/teacher/classes'),
+                  child: const Text('View My Classes'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

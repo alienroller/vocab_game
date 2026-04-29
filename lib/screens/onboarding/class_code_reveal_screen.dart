@@ -20,34 +20,23 @@ class ClassCodeRevealScreen extends StatefulWidget {
 }
 
 class _ClassCodeRevealScreenState extends State<ClassCodeRevealScreen> {
-  bool _hasSharedCode = false;
-
   void _copyCode() {
     Clipboard.setData(ClipboardData(text: widget.classCode));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard! ✅')),
+      const SnackBar(content: Text('Copied to clipboard ✅')),
     );
-    setState(() => _hasSharedCode = true);
   }
 
   void _shareCode() async {
     final text = 'Join my class on VocabGame! Code: ${widget.classCode}';
     await Share.share(text);
-    setState(() => _hasSharedCode = true);
   }
 
   void _onContinue() {
-    if (!_hasSharedCode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Share or copy your code first so students can join! 😊'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    // Go directly to Dashboard. Replaces onboarding stack.
+    // BUG O4 — old code blocked Continue until the teacher tapped Share or
+    // Copy. That meant a teacher who just wanted to explore got
+    // dark-pattern-gated. Codes are visible on every dashboard screen
+    // and from Profile; nudging once is enough.
     context.go('/teacher/dashboard');
   }
 
@@ -162,29 +151,29 @@ class _ClassCodeRevealScreenState extends State<ClassCodeRevealScreen> {
 
                 const Spacer(),
                 
-                // Continue Button
+                // Continue Button — always enabled now that the share gate
+                // is removed (BUG O4).
                 SizedBox(
                   width: double.infinity,
                   height: 56,
                   child: Container(
-                    decoration: _hasSharedCode
-                        ? BoxDecoration(
-                            gradient: AppTheme.primaryGradient,
-                            borderRadius: AppTheme.borderRadiusMd,
-                            boxShadow: AppTheme.shadowGlow(AppTheme.violet),
-                          )
-                        : null,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      borderRadius: AppTheme.borderRadiusMd,
+                      boxShadow: AppTheme.shadowGlow(AppTheme.violet),
+                    ),
                     child: FilledButton(
                       onPressed: _onContinue,
                       style: FilledButton.styleFrom(
-                        backgroundColor: _hasSharedCode ? Colors.transparent : null,
+                        backgroundColor: Colors.transparent,
                         shape: RoundedRectangleBorder(
                           borderRadius: AppTheme.borderRadiusMd,
                         ),
                       ),
                       child: const Text(
                         'Continue to Dashboard →',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style:
+                            TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),

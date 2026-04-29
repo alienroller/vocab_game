@@ -134,6 +134,33 @@ class AssignmentService {
     return List<Map<String, dynamic>>.from(data as List);
   }
 
+  /// Per-word weak-spots for a single student. Pulls from word_stats and
+  /// returns the words this student has answered worst, sorted hardest
+  /// first. Used by Teacher Student Detail to answer "which words is
+  /// Sardor failing?" (BUG SD2).
+  static Future<List<Map<String, dynamic>>> getStudentWeakWords({
+    required String studentId,
+    int limit = 20,
+  }) async {
+    final rows = await _supabase
+        .from('word_stats')
+        .select('word_english, word_uzbek, times_shown, times_correct')
+        .eq('student_id', studentId)
+        .gte('times_shown', 1)
+        .order('times_shown', ascending: false)
+        .limit(200);
+    final list = (rows as List).cast<Map<String, dynamic>>();
+    // Compute per-row accuracy and sort hardest-first; cap at `limit`.
+    list.sort((a, b) {
+      final aAcc = ((a['times_correct'] as num?)?.toDouble() ?? 0) /
+          ((a['times_shown'] as num?)?.toDouble() ?? 1);
+      final bAcc = ((b['times_correct'] as num?)?.toDouble() ?? 0) /
+          ((b['times_shown'] as num?)?.toDouble() ?? 1);
+      return aAcc.compareTo(bAcc);
+    });
+    return list.take(limit).toList();
+  }
+
   // ─── STUDENT METHODS ───────────────────────────────────────────────────────
 
   /// Gets all active assignments for the student's class.
@@ -179,21 +206,25 @@ class AssignmentService {
     required String classCode,
     required int wordsMasteredDelta,
   }) async {
-    // Fetch true total words dynamically from assignments table
-    final assignmentData = await _supabase
-        .from('assignments')
-        .select('word_count')
-        .eq('id', assignmentId)
-        .single();
+    // BUG P2 — used to be two sequential round-trips before the update.
+    // Fetched in parallel now (Future.wait), saving one RTT on poor school
+    // WiFi where this is felt by every kid finishing a session.
+    final results = await Future.wait<dynamic>([
+      _supabase
+          .from('assignments')
+          .select('word_count')
+          .eq('id', assignmentId)
+          .single(),
+      _supabase
+          .from('assignment_progress')
+          .select()
+          .eq('assignment_id', assignmentId)
+          .eq('student_id', studentId)
+          .maybeSingle(),
+    ]);
+    final assignmentData = results[0] as Map<String, dynamic>;
+    final existing = results[1] as Map<String, dynamic>?;
     final realTotalWords = assignmentData['word_count'] as int;
-
-    // Check if a progress row already exists
-    final existing = await _supabase
-        .from('assignment_progress')
-        .select()
-        .eq('assignment_id', assignmentId)
-        .eq('student_id', studentId)
-        .maybeSingle();
 
     if (existing == null) {
       // First time this student practices this assignment — create row
